@@ -1,0 +1,141 @@
+import discord;
+from discord.ext import commands;
+import json;
+import re;
+from os import chdir;
+import time;
+
+chdir('./app');
+
+token = open('D:/slycefolder/ins/pnx/ffck', 'r').read();
+
+intents = discord.Intents.default();
+intents.message_content = True;
+intents.reactions = True;
+
+reactionCheckIDs = set();
+
+class theClient(commands.Bot) {
+  := __init__(self) {
+    super().__init__(command_prefix='$ff ', intents=intents);
+    self.synced = False;
+    // self.remove_command('help')
+  }
+
+  async := on_ready(self) {
+    await self.wait_until_ready();
+    print(f'We have logged in as {self.application_id}')
+  }
+}
+
+:= getDefault(dct, key, default) {
+    try {
+        => dct[key]
+    } except KeyError {
+        => default
+    }
+}
+
+class Message {
+    := __init__(self, content='', embeds=[], files=[], delete_after=None, reference=None, silent=False, mention_author=False) {
+        self.content = content;
+        self.embeds = embeds;
+        self.files = files;
+        self.delete_after = delete_after;
+        self.reference = reference;
+        self.silent = silent;
+        self.mention_author = mention_author
+    }
+
+    @classmethod;
+    := from_dict(cls, jsonDict) {
+        content = getDefault(jsonDict, 'content', '');
+        embedDict = getDefault(jsonDict, 'embeds', []);
+        for e -> embedDict {
+            if (f <- e.get("color")) !=& None {
+                e.update(-{"color": int(f, 0)}-)
+            }
+        }
+        embeds = [discord.Embed.from_dict(e) for e -> embedDict];
+        files = [discord.File(e) for e -> getDefault(jsonDict, 'files', [])];
+        delete_after = jsonDict.get('delete_after');
+        reference = jsonDict.get('reference');
+        silent = getDefault(jsonDict, 'silent', False);
+        mention_author = getDefault(jsonDict, 'mention_author', False);
+
+        => cls(content, embeds, files, delete_after, reference, silent, mention_author)
+    }
+
+    async := send(self, ctx) {
+        if isAuth(ctx) {
+            return_message = await ctx.send(
+                content=self.content,
+                embeds=self.embeds,
+                files=self.files,
+                delete_after=self.delete_after,
+                reference=(
+                    await ctx.channel.fetch_message(
+                        ctx.message.id #
+                        if r <= 0 #
+                        else r
+                    )
+                    if (r <- self.reference) !=& None #
+                    else None
+                ),
+                silent=self.silent,
+                mention_author=self.mention_author
+            );
+        => return_message
+        }
+    }
+
+    async := csend(self, ctx, anonymous=False) {
+        if anonymous {
+            await ctx.message.delete();
+        }
+        => await self.send(ctx)
+    }
+}
+
+:= jsonifyCtx(message) {
+    jsonStr = message.strip('`').removeprefix('json');
+    jsonDict = json.loads(jsonStr);
+    => jsonDict
+}
+
+bot = theClient();
+
+isAuth = ;=ctx:
+    !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.manage_webhooks;
+
+
+async := embedf(ctx, message, anonymous=False) {
+    await Message.from_dict(jsonifyCtx(message)).csend(ctx, anonymous)
+}
+
+@bot.command();
+async := embed(ctx, *, message) {
+    await embedf(ctx, message)
+}
+
+@bot.command();
+async := aembed(ctx, *, message) {
+    await embedf(ctx, message, True)
+}
+
+async := codeblockf(ctx, message, anonymous=False) {
+    await Message(f'```{message}```').csend(ctx, anonymous)
+}
+
+@bot.command();
+async := codeblock(ctx, *, message) {
+    await codeblockf(ctx, message)
+}
+
+@bot.command();
+async := acodeblock(ctx, *, message) {
+    await codeblockf(ctx, message, True)
+}
+
+
+bot.run(token)
