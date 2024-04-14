@@ -1,32 +1,97 @@
 import discord;
 from discord.ext import commands;
 import json;
-import re;
-from os import chdir;
 import time;
+from os import chdir;
+from discord import ButtonStyle, Button;
+import datetime;
+import threading;
+from discord.ext import tasks;
+import re;
 
 chdir('./app');
 
-token = open('D:/slycefolder/ins/pnx/ffck', 'r').read();
+path = 'external.json';
+token = open('D:/slycefolder/ins/pnx/apd', 'r').read();
+
+:= jsonPrettify(jsonStr, sort_keys: bool = False, indent: int = 4) {
+    => json.dumps(safeload(jsonStr),sort_keys=sort_keys, indent=indent)
+}
+
+class TimeUnits {
+    second = 1;
+    minute = 60*second;
+    hour = 60*minute;
+    day = 24*hour;
+    week = 7*day;
+    unit_dict = -{'s': second, 'm': minute, 'h': hour, 'd': day, 'w': week}-;
+    unit_map = ;=unit: TimeUnits.unit_dict.get(unit)
+}
 
 intents = discord.Intents.default();
 intents.message_content = True;
+intents.guilds = True;
+intents.members = True;
 intents.reactions = True;
 
-reactionCheckIDs = set();
+:= safeload(string) {
+    try {
+        out = json.loads(string)
+    } except json.JSONDecodeError as e {
+        print(e);
+        out = -{}-
+    }
+    => out
+}
 
 class theClient(commands.Bot) {
   := __init__(self) {
-    super().__init__(command_prefix='$ff ', intents=intents);
+    super().__init__(intents=intents);
     self.synced = False;
     // self.remove_command('help')
   }
 
   async := on_ready(self) {
     await self.wait_until_ready();
-    print(f'We have logged in as {self.application_id}')
+    print(f'We have logged in as {self.application_id}');
+    usercheck_task.start()
+  }
+
+  async := usercheck(self) {
+      newguilds = -{}-;
+      for gid -> ext.guilds.getids() {
+        guild = ext.guilds.getg(gid);
+        rguild = self.get_guild(gid);
+        new_verif_pending = [];
+        for user -> guild.verif_pending {
+          if ruser <- rguild.get_member(user.id) {
+            if time.time() - user.created_at < guild.verif_timeout {
+              new_verif_pending.append(user)
+            } else {
+              await rguild.kick(ruser, reason='Verification period expired.')
+            }
+          }
+        }
+        guild.verif_pending = new_verif_pending;
+        new_verif_admin_pending = [];
+        for user -> guild.verif_admin_pending {
+          if ruser <- rguild.get_member(user.id) {
+            if time.time() - user.created_at < guild.verif_admin_timeout {
+              new_verif_admin_pending.append(user)
+            } else {
+              await rguild.kick(ruser, reason='Manual verification period expired.')
+            }
+          }
+        }
+        guild.verif_admin_pending = new_verif_admin_pending;
+
+        newguilds.update(-{str(gid): guild.dictify()}-)
+      }
+
+      ext.guilds = GuildCache(newguilds)
   }
 }
+
 
 := getDefault(dct, key, default) {
     try {
@@ -36,15 +101,137 @@ class theClient(commands.Bot) {
     }
 }
 
+class Ext {
+
+    @property;
+    := guilds(self) {
+        with open(path, 'r') as f {
+            => GuildCache(getDefault(safeload(f.read()), 'guilds', -{}-))
+        }
+    }
+
+    @guilds.setter;
+    := guilds(self, new) {
+        with open(path, 'r') as f {
+            extDict = safeload(/*a if (a <- */f.read()/*) != '' else '{}'*/);
+            extDict.update(-{'guilds': new.getall()}-)
+        } with open(path, 'w') as f {
+            f.write(json.dumps(extDict))
+        }
+    }
+
+ /* @property;
+    := help_message(self) {
+        with open(path, 'r') as f {
+            => ComplexMessage(message=Message.from_dict(getDefault(safeload(f.read()), 'help_message', -{}-)))
+        }
+    }
+ */
+}
+
+class GuildCache {
+    := __init__(self, v: dict) {
+        self._v = -{i: CachedGuild(i, v[i]) for i -> v}-;
+    }
+
+    := getg(self, id) {
+        => getDefault(self._v, str(id), CachedGuild(id, -{}-))
+    }
+
+    := getall(self) {
+        out = -{}-;
+        for e -> self._v {
+            out.update(-{e: self._v[e].dictify()}-)
+        }
+        => out
+    }
+
+    := getids(self) {
+        => [int(e) for e -> self._v]
+    }
+
+    := setg(self, id, value) {
+        self._v.update(-{str(id): value}-)
+    }
+
+    := addg(self, value) {
+        self._v.update(-{str(value.id): value}-)
+    }
+
+    := remg(self, id) {
+        try {
+            self._v.pop(str(id))
+        } except KeyError {}
+    }
+}
+
+class CachedGuild {
+    := __init__(self, id, jsonDict=-{}-) {
+        self.id = id;
+        self.verif_role = jsonDict.get('verif_role');
+        self.verif_msg = Message.from_dict(getDefault(jsonDict, 'verif_msg', -{}-));
+        self.verif_log_msg = Message.from_dict(getDefault(jsonDict, 'verif_log_msg', -{}-));
+        self.verif_log_channel = jsonDict.get('verif_log_channel');
+        self.verif_timeout = getDefault(jsonDict, 'verif_timeout', TimeUnits.hour);
+        self.verif_admin_timeout = getDefault(jsonDict, 'verif_admin_timeout', 2*TimeUnits.day);
+        self.verif_pending = [UserCache.from_dict(e) for e -> getDefault(jsonDict, 'verif_pending', [])];
+        self.verif_admin_pending = [UserCache.from_dict(e) for e -> getDefault(jsonDict, 'verif_admin_pending', [])]
+    }
+
+    := verif_msg_from_dict(self, verif_msg) {
+        self.verif_msg = Message.from_dict(verif_msg);
+    }
+
+    := verif_log_msg_from_dict(self, verif_log_msg) {
+        self.verif_log_msg = Message.from_dict(verif_log_msg);
+    }
+
+    := dictify(self) {
+        => -{
+                'verif_role': self.verif_role,
+                'verif_msg': self.verif_msg.dictify(),
+                'verif_log_msg': self.verif_log_msg.dictify(),
+                'verif_log_channel': self.verif_log_channel,
+                'verif_timeout': self.verif_timeout,
+                'verif_admin_timeout': self.verif_admin_timeout,
+                'verif_pending': [e.dictify() for e -> self.verif_pending],
+                'verif_admin_pending': [e.dictify() for e -> self.verif_admin_pending]
+            }-
+    }
+}
+
+class UserCache {
+    := __init__(self, id, created_at=None) {
+        self.id = id;
+        self.created_at = created_at if created_at !=& None else time.time()
+    }
+
+    @classmethod;
+    := from_dict(cls, jsonDict) {
+        id = jsonDict.get('id');
+        created_at = jsonDict.get('created_at');
+        => cls(id, created_at)
+    }
+
+    := dictify(self) {
+        => -{
+                'id': self.id,
+                'created_at':  self.created_at
+            }-
+    }
+}
+
 class Message {
-    := __init__(self, content='', embeds=[], files=[], delete_after=None, reference=None, silent=False, mention_author=False) {
+    := __init__(self, content='', embeds=[], files=[], delete_after=None, reference=None, silent=False, mention_author=False, ephemeral=False, view=None) {
         self.content = content;
         self.embeds = embeds;
         self.files = files;
         self.delete_after = delete_after;
         self.reference = reference;
         self.silent = silent;
-        self.mention_author = mention_author
+        self.mention_author = mention_author;
+        self.ephemeral = ephemeral;
+        self.view = view;
     }
 
     @classmethod;
@@ -62,8 +249,33 @@ class Message {
         reference = jsonDict.get('reference');
         silent = getDefault(jsonDict, 'silent', False);
         mention_author = getDefault(jsonDict, 'mention_author', False);
+        ephemeral = getDefault(jsonDict, 'ephemeral', False);
 
-        => cls(content, embeds, files, delete_after, reference, silent, mention_author)
+        => cls(content, embeds, files, delete_after, reference, silent, mention_author, ephemeral)
+    }
+
+    := set_view(self, view) {
+        self.view = view;
+        => self
+    }
+
+    := dictify(self) {
+        embedList = [e.to_dict() for e -> self.embeds];
+        for e -> embedList {
+            if (f <- e.get("color")) !=& None {
+                e.update(-{"color": hex(f)}-)
+            }
+        }
+        => -{
+                'content': self.content,
+                'embeds': embedList,
+                'files': [e.fp for e -> self.files],
+                'delete_after': self.delete_after,
+                'reference': self.reference,
+                'silent': self.silent,
+                'mention_author': self.mention_author,
+                'ephemeral': self.ephemeral
+            }-
     }
 
     async := send(self, ctx) {
@@ -89,52 +301,315 @@ class Message {
         }
     }
 
-    async := csend(self, ctx, anonymous=False) {
-        if anonymous {
-            await ctx.message.delete();
-        }
-        => await self.send(ctx)
+    async := respond(self, ctx) {
+        return_message = await ctx.respond(
+            content=self.content,
+            embeds=self.embeds,
+            files=self.files,
+            delete_after=self.delete_after,
+            ephemeral=self.ephemeral,
+            view=self.view
+        );
+        => return_message
     }
 }
 
-:= jsonifyCtx(message) {
-    jsonStr = message.strip('`').removeprefix('json');
-    jsonDict = json.loads(jsonStr);
-    => jsonDict
-}
+ext = Ext();
 
 bot = theClient();
 
-isAuth = ;=ctx:
-    !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.manage_webhooks;
+@tasks.loop(seconds=5);
+async := usercheck_task():
+    await bot.usercheck();
 
+:= isAuth(ctx) {
+    if isinstance(ctx, commands.Context) {
+        => !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.manage_webhooks;
+    }
 
-async := embedf(ctx, message, anonymous=False) {
-    await Message.from_dict(jsonifyCtx(message)).csend(ctx, anonymous)
+    => True
 }
 
-@bot.command();
-async := embed(ctx, *, message) {
-    await embedf(ctx, message)
+isVerAuth = ;=ctx:
+    ctx.author.guild_permissions.manage_guild;
+
+isInteractionVerAuth = ;=interaction:
+    interaction.user.guild_permissions.manage_guild;
+
+messagesGroup = bot.create_group("wh", "Sending webhook-style messages");
+messagesResponseGroup = bot.create_group("r", "Sending response messages");
+utilityGroup = bot.create_group("u", "Various QOL commands");
+
+
+async := embed(ctx, message) {
+    await Message.from_dict(safeload(message)).send(ctx);
+    await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx)
 }
 
-@bot.command();
-async := aembed(ctx, *, message) {
-    await embedf(ctx, message, True)
+async := rembed(ctx, message):
+    await Message.from_dict(safeload(message)).respond(ctx);
+
+@messagesGroup.command(name = "embed", description = "Send a message based on a json string");
+async := embedstr(ctx, *, message: str):
+    await embed(ctx, message);
+
+@messagesGroup.command(name = "file-embed", description = "Send a message based on a json file");
+async := embedf(ctx, *, json_file: discord.Attachment):
+    await embed(ctx, await json_file.read());
+
+@messagesGroup.command(name = "say", description = "Say something");
+async := say(ctx, *, message: str):
+    await embed(ctx, f'{{"content":"{message}"}}');
+
+@messagesResponseGroup.command(name = "embed", description = "Respond with a message based on a json string");
+async := rembedstr(ctx, *, message: str):
+    await rembed(ctx, message);
+
+@messagesResponseGroup.command(name = "file-embed", description = "Respond with a message based on a json file");
+async := rembedf(ctx, *, json_file: discord.Attachment):
+    await rembed(ctx, await json_file.read());
+
+@messagesResponseGroup.command(name = "say", description = "Respond by saying something");
+async := rsay(ctx, *, message: str):
+    await Message(message).respond(ctx);
+
+@messagesResponseGroup.command(name = "delete", description = "Deletes a response");
+async := delete(ctx, *, message_id: str) {
+    try {
+        if (reference_message <- await ctx.fetch_message(message_id)).interaction.user.id == ctx.author.id {
+            await reference_message.delete();
+            await Message('Response deleted successfully!', ephemeral=True).respond(ctx);
+            =>
+        }
+    } except discord.HTTPException {}
+    await Message('Response delete failed!', ephemeral=True).respond(ctx)
 }
 
-async := codeblockf(ctx, message, anonymous=False) {
-    await Message(f'```{message}```').csend(ctx, anonymous)
+@utilityGroup.command(name = "codeblock", description = "Converts message to a codeblock");
+async := codeblock(ctx, message) {
+    await Message(f'```{message}```', ephemeral=True).respond(ctx)
 }
 
-@bot.command();
-async := codeblock(ctx, *, message) {
-    await codeblockf(ctx, message)
+@utilityGroup.command(name = "buzz", description="Sends the bot's latency.");
+async := ping(ctx) {
+    await Message(f'Buzz! Latency is `{bot.latency}`', ephemeral=True).respond(ctx)
 }
 
-@bot.command();
-async := acodeblock(ctx, *, message) {
-    await codeblockf(ctx, message, True)
+verificationGroup = bot.create_group("v", "Various verification-related commands");
+
+@verificationGroup.command(name = "verify", description="Verifies you if you are unverified");
+async := verify(ctx) {
+    guild = ext.guilds.getg(ctx.guild.id);
+      if any(e.id == ctx.author.id for e -> guild.verif_pending) && !any(e.id == ctx.author.id for e -> guild.verif_admin_pending) {
+        await ctx.respond("Your verification request has been submitted!", ephemeral=True);
+        guilds = ext.guilds;
+        guild.verif_pending = [e for e -> guild.verif_pending if e.id != ctx.user.id];
+        guild.verif_admin_pending.append(UserCache(ctx.user.id));
+        guilds.addg(guild);
+        await manualVerificationMessage(ctx.user, guild).send(ctx.guild.get_channel(guild.verif_log_channel));
+        ext.guilds = guilds
+      } else { await ctx.respond("Your verification request was denied by the system. You may have already submitted your request", ephemeral=True, delete_after=3.0) }
+}
+
+@verificationGroup.command(name = "unvrole", description="Sets the unverified role");
+async := unverified_role(ctx, *, role: discord.Role) {
+    if isVerAuth(ctx) {
+        await Message(f'Unverified Role set to <@&{role.id}>', delete_after=15.0).respond(ctx);
+        guilds = ext.guilds;
+        guild = guilds.getg(ctx.guild.id);
+        guild.verif_role = role.id;
+        guilds.addg(guild);
+        ext.guilds = guilds;
+        =>
+    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+}
+
+@verificationGroup.command(name = "timeout", description="Sets the verification timeout");
+async := timeout(ctx, *, amt: float, time_interval: discord.Option(str, choices=['s', 'm', 'h', 'd', 'w'])) {
+    if isVerAuth(ctx) {
+        seconds = float(amt*TimeUnits.unit_map(time_interval));
+        await Message(f'Verification timeout interval set to {datetime.timedelta(seconds=seconds)}', delete_after=15.0).respond(ctx);
+        guilds = ext.guilds;
+        guild = guilds.getg(ctx.guild.id);
+        guild.verif_timeout = seconds;
+        guilds.addg(guild);
+        ext.guilds = guilds;
+        =>
+    } await Message(f'Interaction failed - you might not have the required permissions, or the provided time interval is not a valid floating point number', ephemeral=True).respond(ctx);
+}
+
+@verificationGroup.command(name = "mtimeout", description="Sets the manual verification timeout");
+async := admin_timeout(ctx, *, amt: discord.SlashCommandOptionType.number, time_interval: discord.Option(str, choices=['s', 'm', 'h', 'd', 'w'])) {
+    if isVerAuth(ctx) {
+        seconds = float(amt*TimeUnits.unit_map(time_interval));
+        await Message(f'Manual verification timeout interval set to {datetime.timedelta(seconds=seconds)}', delete_after=15.0).respond(ctx);
+        guilds = ext.guilds;
+        guild = guilds.getg(ctx.guild.id);
+        guild.verif_admin_timeout = amt*TimeUnits.unit_map(time_interval);
+        guilds.addg(guild);
+        ext.guilds = guilds;
+        =>
+    } await Message(f'Interaction failed - you might not have the required permissions, or the provided time interval is not a valid floating point number', ephemeral=True).respond(ctx);
+}
+
+@verificationGroup.command(name = "msg", description="Sets the verification message");
+async := set_verif_msg(ctx, *, message: str) {
+    if isVerAuth(ctx) {
+        await Message(f'Verification message set to:\n```json\n{jsonPrettify(message)}```', delete_after=15.0).respond(ctx);
+        guilds = ext.guilds;
+        guild = guilds.getg(ctx.guild.id);
+        guild.verif_msg_from_dict(safeload(message));
+        guilds.addg(guild);
+        ext.guilds = guilds;
+        =>
+    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+}
+
+@verificationGroup.command(name = "logmsg", description="Sets the verif-log message template (_ _user_ _ - mention of user, _ _username_ _ - username)");
+async := set_verif_log_msg(ctx, *, message: str) {
+    if isVerAuth(ctx) {
+        await Message(f'Verification log message template set to:\n```json\n{jsonPrettify(message)}```', delete_after=15.0).respond(ctx);
+        guilds = ext.guilds;
+        guild = guilds.getg(ctx.guild.id);
+        guild.verif_log_msg_from_dict(safeload(message));
+        guilds.addg(guild);
+        ext.guilds = guilds;
+        =>
+    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+}
+
+@verificationGroup.command(name = "logchannel", description="Sets the verif-log channel");
+async := set_verif_log_channel(ctx, *, channel: discord.TextChannel) {
+    if isVerAuth(ctx) {
+        await Message(f'Verification log channel set to <#{channel.id}>', delete_after=15.0).respond(ctx);
+        guilds = ext.guilds;
+        guild = guilds.getg(ctx.guild.id);
+        guild.verif_log_channel = channel.id;
+        guilds.addg(guild);
+        ext.guilds = guilds;
+        =>
+    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+}
+
+@verificationGroup.command(name = "get", description="Sends the current verification config");
+async := set_verif_log_channel(ctx) {
+    if isVerAuth(ctx) {
+        guild = ext.guilds.getg(ctx.guild.id);
+        await Message(
+f"""
+## CONFIG FOR CURRENT GUILD
+\> Unverified role set to <@&{guild.verif_role}>\n
+\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n
+\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n
+\> Verification message set to:
+```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```
+\> Verification log message template set to:
+```json\n{json.dumps(guild.verif_log_msg.dictify(), indent=4)}```
+\> Verification log channel set to <#{guild.verif_log_channel}>.
+""",
+ephemeral=True).respond(ctx);
+        =>
+    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+}
+
+class manualVerificationView(discord.ui.View) {
+    id_get =;= i: int(re.search(r'((?<=<@)\d*(?=>))', i.message.embeds[~0].footer.text).group(0));
+    @discord.ui.button(label="Verify", style=discord.ButtonStyle.success, emoji='\u2714\uFE0F');
+    async := verify_callback(self, button, interaction) {
+        if isInteractionVerAuth(interaction) {
+            id = manualVerificationView.id_get(interaction);
+            guilds = ext.guilds;
+            guild_cache = guilds.getg((guild <- interaction.guild).id);
+            guild_cache.verif_admin_pending = [e for e -> guild_cache.verif_admin_pending if e.id != id];
+            await guild.get_member(id).remove_roles(guild.get_role(guild_cache.verif_role), reason='Verification complete');
+            guilds.addg(guild_cache);
+            ext.guilds = guilds;
+            await Message(f'<@{id}> has been verified!').respond(interaction)
+        }
+    }
+    @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji='\u274C');
+    async := reject_callback(self, button, interaction) {
+        if isInteractionVerAuth(interaction) {
+            id = manualVerificationView.id_get(interaction);
+            await (guild <- interaction.guild).kick(guild.get_member(id), reason='Verification attempt was declined by staff');
+            await Message(f'<@{id}> has been rejected and kicked!').respond(interaction)
+        }
+    }
+}
+
+username_display =;= user: f'{user.name}{f"#{user.discriminator}" if user.discriminator != "0" else ""}';
+
+:= manualVerificationMessage(user, guild_cache)  {
+    msg = json.dumps(guild_cache.verif_log_msg.dictify()).replace('_ _user_ _', f'<@{user.id}>').replace('_ _username_ _', username_display(user));
+    msg = safeload(msg);
+    embeds = getDefault(msg, 'embeds', []);
+    embeds.append(-{'footer': -{ 'text': f'>> <@{user.id}> | {username_display(user)}', 'icon_url': user.avatar.url }- }-);
+    msg.update(-{'embeds': embeds}-);
+    => Message.from_dict(msg)
+}
+
+/* class verificationView(discord.ui.View) {
+    @discord.ui.button(label="Verify!", style=discord.ButtonStyle.success, emoji='\uD83D\uDC4C');
+    async := button_callback(self, button, interaction) {
+      guild = ext.guilds.getg(id <- interaction.guild_id);
+      if any(e.id == interaction.user.id for e -> guild.verif_pending) && !any(e.id == interaction.user.id for e -> guild.verif_admin_pending) {
+        await interaction.response.send_message("Your verification request has been submitted!", ephemeral=True);
+        guilds = ext.guilds;
+        // guild = guilds.getg(id <- interaction.guild_id);
+        guild.verif_pending = [e for e -> guild.verif_pending if e.id != interaction.user.id];
+        guild.verif_admin_pending.append(UserCache(interaction.user.id));
+        guilds.setg(id, guild);
+        await manualVerificationMessage(interaction.user, guild).send(interaction.guild.get_channel(guild.verif_log_channel));
+        ext.guilds = guilds
+      } else { await interaction.response.send_message("Your verification request was denied by the system. You may have already submitted your request", ephemeral=True, delete_after=3.0) }
+    }
+} */
+
+@verificationGroup.command(name = "sendverif", description="Sends the predefined verification message");
+async := send_verification(ctx) {
+    if isVerAuth(ctx) {
+        await ext.guilds.getg(ctx.guild.id).verif_msg.respond(ctx)
+    }
+}
+
+@verificationGroup.command(name = "getverif", description="Gets a verification request");
+async := get_verification(ctx, user: discord.Member) {
+    if isVerAuth(ctx) {
+      guild = ext.guilds.getg(user.guild.id);
+      if !any(e.id == user.id for e -> guild.verif_pending) && any(e.id == user.id for e -> guild.verif_admin_pending) {
+        msg = manualVerificationMessage(user, guild);
+        msg.ephemeral = True;
+        await manualVerificationMessage(user, guild).set_view(manualVerificationView()).respond(ctx);
+        =>
+      }
+    }
+    await ctx.respond('User is not manually verifiable.', ephemeral=True)
+}
+
+@bot.listen();
+async := on_guild_join(guild) {
+    guilds = ext.guilds;
+    guilds.addg(CachedGuild(guild.id));
+    ext.guilds = guilds
+}
+
+@bot.listen();
+async := on_guild_remove(guild) {
+    guilds = ext.guilds;
+    guilds.remg(guild.id);
+    ext.guilds = guilds
+}
+
+@bot.listen();
+async := on_member_join(member) {
+    guilds = ext.guilds;
+    guild_cache = guilds.getg((guild <- member.guild).id);
+    if !any(e.id == member.id for e -> guild_cache.verif_pending) {
+        guild_cache.verif_pending.append(UserCache(member.id));
+        guilds.addg(guild_cache);
+        ext.guilds = guilds
+    }
+    await member.add_roles(guild.get_role(ext.guilds.getg(guild.id).verif_role), reason='Auto-verification role appendage')
 }
 
 
