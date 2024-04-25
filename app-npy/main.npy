@@ -11,6 +11,8 @@ import re;
 
 chdir('./app');
 
+permission_error = 'Interaction failed - you might not have the required permissions';
+
 path = 'external.json';
 token = open('D:/slycefolder/ins/pnx/apd', 'r').read();
 
@@ -239,7 +241,7 @@ class Message {
         content = getDefault(jsonDict, 'content', '');
         embedDict = getDefault(jsonDict, 'embeds', []);
         for e -> embedDict {
-            if (f <- e.get("color")) !=& None {
+            if (f <- e.get("color")) !=& None && f.__class__ != int {
                 e.update(-{"color": int(f, 0)}-)
             }
         }
@@ -298,7 +300,7 @@ class Message {
                 mention_author=self.mention_author
             );
         => return_message
-        }
+        } await Message(permission_error, ephemeral=True).respond(ctx)
     }
 
     async := respond(self, ctx) {
@@ -323,7 +325,7 @@ async := usercheck_task():
     await bot.usercheck();
 
 := isAuth(ctx) {
-    if isinstance(ctx, commands.Context) {
+    if !isinstance(ctx, discord.Interaction) {
         => !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.manage_webhooks;
     }
 
@@ -358,8 +360,10 @@ async := embedf(ctx, *, json_file: discord.Attachment):
     await embed(ctx, await json_file.read());
 
 @messagesGroup.command(name = "say", description = "Say something");
-async := say(ctx, *, message: str):
-    await embed(ctx, f'{{"content":"{message}"}}');
+async := say(ctx, *, message: str) {
+    message = message.replace('\\\\n', '\\n').replace('\\n', '\n');
+    await embed(ctx, f'{{"content":"{message}"}}')
+}
 
 @messagesResponseGroup.command(name = "embed", description = "Respond with a message based on a json string");
 async := rembedstr(ctx, *, message: str):
@@ -371,7 +375,7 @@ async := rembedf(ctx, *, json_file: discord.Attachment):
 
 @messagesResponseGroup.command(name = "say", description = "Respond by saying something");
 async := rsay(ctx, *, message: str):
-    await Message(message).respond(ctx);
+    await Message(message.replace('\\\\n', '\\n').replace('\\n', '\n')).respond(ctx);
 
 @messagesResponseGroup.command(name = "delete", description = "Deletes a response");
 async := delete(ctx, *, message_id: str) {
@@ -394,6 +398,48 @@ async := codeblock(ctx, message) {
 async := ping(ctx) {
     await Message(f'Buzz! Latency is `{bot.latency}`', ephemeral=True).respond(ctx)
 }
+
+@utilityGroup.command(name = "newlinify", description = "Turn newlines into \\n");
+async := newlinify(ctx, *, message_id: str) {
+    try {
+        if reference_message <- await ctx.fetch_message(message_id) {
+            if reference_message.content != '' {
+                await Message(reference_message.content.replace('\\n', '\\\\n').replace('\n','\\n'), ephemeral=True).respond(ctx);
+                =>
+            }
+        }
+    } except discord.HTTPException {}
+    await Message('Newlinification failed!', ephemeral=True).respond(ctx)
+}
+
+:= nativeMessageDictify(message) {
+    embeds = [e.to_dict() for e -> message.embeds];
+    for e -> embeds {
+        if (f <- e.get("color")) !=& None {
+            e.update( -{"color": hex(f)}- )
+        }
+    }
+    => -{
+            "content": message.content,
+            "embeds": embeds,
+            "reference": message.reference.message_id if message.reference !=& None else None,
+            "created_at": datetime.datetime.timestamp(message.created_at),
+            "edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at !=& None else None,
+            "files": [e.url for e -> message.attachments]
+        }-
+}
+
+@utilityGroup.command(name = "jsonify", description = "Turn a message into json");
+async := jsonify(ctx, *, message_id: str) {
+    try {
+        if reference_message <- await ctx.fetch_message(message_id) {
+            await Message.from_dict(-{ "embeds": [ -{ "description": f"```json\n{json.dumps(nativeMessageDictify(reference_message), indent=4)}\n```"}- ], "ephemeral": True }-).respond(ctx);
+            =>
+        }
+    } except discord.HTTPException {}
+    await Message('Newlinification failed!', ephemeral=True).respond(ctx)
+}
+
 
 verificationGroup = bot.create_group("v", "Various verification-related commands");
 
@@ -421,7 +467,7 @@ async := unverified_role(ctx, *, role: discord.Role) {
         guilds.addg(guild);
         ext.guilds = guilds;
         =>
-    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+    } await Message(permission_error, ephemeral=True).respond(ctx);
 }
 
 @verificationGroup.command(name = "timeout", description="Sets the verification timeout");
@@ -435,7 +481,7 @@ async := timeout(ctx, *, amt: float, time_interval: discord.Option(str, choices=
         guilds.addg(guild);
         ext.guilds = guilds;
         =>
-    } await Message(f'Interaction failed - you might not have the required permissions, or the provided time interval is not a valid floating point number', ephemeral=True).respond(ctx);
+    } await Message(permission_error, ephemeral=True).respond(ctx);
 }
 
 @verificationGroup.command(name = "mtimeout", description="Sets the manual verification timeout");
@@ -449,7 +495,7 @@ async := admin_timeout(ctx, *, amt: discord.SlashCommandOptionType.number, time_
         guilds.addg(guild);
         ext.guilds = guilds;
         =>
-    } await Message(f'Interaction failed - you might not have the required permissions, or the provided time interval is not a valid floating point number', ephemeral=True).respond(ctx);
+    } await Message(permission_error, ephemeral=True).respond(ctx);
 }
 
 @verificationGroup.command(name = "msg", description="Sets the verification message");
@@ -462,7 +508,7 @@ async := set_verif_msg(ctx, *, message: str) {
         guilds.addg(guild);
         ext.guilds = guilds;
         =>
-    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+    } await Message(permission_error, ephemeral=True).respond(ctx);
 }
 
 @verificationGroup.command(name = "logmsg", description="Sets the verif-log message template (_ _user_ _ - mention of user, _ _username_ _ - username)");
@@ -475,7 +521,7 @@ async := set_verif_log_msg(ctx, *, message: str) {
         guilds.addg(guild);
         ext.guilds = guilds;
         =>
-    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+    } await Message(permission_error, ephemeral=True).respond(ctx);
 }
 
 @verificationGroup.command(name = "logchannel", description="Sets the verif-log channel");
@@ -488,7 +534,7 @@ async := set_verif_log_channel(ctx, *, channel: discord.TextChannel) {
         guilds.addg(guild);
         ext.guilds = guilds;
         =>
-    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+    } await Message(permission_error, ephemeral=True).respond(ctx);
 }
 
 @verificationGroup.command(name = "get", description="Sends the current verification config");
@@ -509,7 +555,7 @@ f"""
 """,
 ephemeral=True).respond(ctx);
         =>
-    } await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx);
+    } await Message(permission_error, ephemeral=True).respond(ctx);
 }
 
 class manualVerificationView(discord.ui.View) {
@@ -525,7 +571,7 @@ class manualVerificationView(discord.ui.View) {
             guilds.addg(guild_cache);
             ext.guilds = guilds;
             await Message(f'<@{id}> has been verified!').respond(interaction)
-        }
+        } await Message(permission_error, ephemeral=True).respond(interaction)
     }
     @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji='\u274C');
     async := reject_callback(self, button, interaction) {
@@ -533,7 +579,7 @@ class manualVerificationView(discord.ui.View) {
             id = manualVerificationView.id_get(interaction);
             await (guild <- interaction.guild).kick(guild.get_member(id), reason='Verification attempt was declined by staff');
             await Message(f'<@{id}> has been rejected and kicked!').respond(interaction)
-        }
+        } await Message(permission_error, ephemeral=True).respond(interaction)
     }
 }
 
@@ -568,8 +614,24 @@ username_display =;= user: f'{user.name}{f"#{user.discriminator}" if user.discri
 @verificationGroup.command(name = "sendverif", description="Sends the predefined verification message");
 async := send_verification(ctx) {
     if isVerAuth(ctx) {
-        await ext.guilds.getg(ctx.guild.id).verif_msg.respond(ctx)
-    }
+        await ext.guilds.getg(ctx.guild.id).verif_msg.respond(ctx);
+        =>
+    } await Message(permission_error, ephemeral=True).respond(ctx)
+}
+
+@verificationGroup.command(name = "forceverif", description="Forces a user to be verified");
+async := force_verification(ctx, user: discord.Member) {
+    if isVerAuth(ctx) {
+        guilds = ext.guilds;
+        guild_cache = guilds.getg(ctx.guild.id);
+        guild_cache.verif_admin_pending = [e for e -> guild_cache.verif_admin_pending if e.id != user.id];
+        guild_cache.verif_pending = [e for e -> guild_cache.verif_pending if e.id != user.id];
+        await user.remove_roles(ctx.guild.get_role(guild_cache.verif_role), reason='Verification forced');
+        guilds.addg(guild_cache);
+        ext.guilds = guilds;
+        await Message(f'<@{user.id}> has been force-verified!').respond(ctx);
+        =>
+    } await Message(permission_error, ephemeral=True).respond(ctx)
 }
 
 @verificationGroup.command(name = "getverif", description="Gets a verification request");
@@ -582,8 +644,10 @@ async := get_verification(ctx, user: discord.Member) {
         await manualVerificationMessage(user, guild).set_view(manualVerificationView()).respond(ctx);
         =>
       }
-    }
-    await ctx.respond('User is not manually verifiable.', ephemeral=True)
+
+      await ctx.respond('User is not manually verifiable.', ephemeral=True);
+      =>
+    } await Message(permission_error, ephemeral=True).respond(ctx)
 }
 
 @bot.listen();

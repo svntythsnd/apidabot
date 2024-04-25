@@ -9,6 +9,7 @@ import threading
 from discord.ext import tasks
 import re
 chdir('./app')
+permission_error = 'Interaction failed - you might not have the required permissions'
 path = 'external.json'
 token = open('D:/slycefolder/ins/pnx/apd', 'r').read()
 def jsonPrettify(jsonStr, sort_keys: bool = False, indent: int = 4):
@@ -164,7 +165,7 @@ class Message:
   content = getDefault(jsonDict, 'content', '')
   embedDict = getDefault(jsonDict, 'embeds', [])
   for e in embedDict:
-   if (f := e.get("color")) is not None:
+   if (f := e.get("color")) is not None and f.__class__ != int:
     e.update({"color": int(f, 0)})
    
   embeds = [discord.Embed.from_dict(e) for e in embedDict]
@@ -189,7 +190,7 @@ class Message:
   if isAuth(ctx):
    return_message = await ctx.send(content=self.content,embeds=self.embeds,files=self.files,delete_after=self.delete_after,reference=(await ctx.channel.fetch_message(ctx.message.id if r <= 0 else r)if (r := self.reference) is not None else None),silent=self.silent,mention_author=self.mention_author)
    return return_message
-  
+  await Message(permission_error, ephemeral=True).respond(ctx)
  async def respond(self, ctx):
   return_message = await ctx.respond(content=self.content,embeds=self.embeds,files=self.files,delete_after=self.delete_after,ephemeral=self.ephemeral,view=self.view)
   return return_message
@@ -199,7 +200,7 @@ bot = theClient()
 @tasks.loop(seconds=5)
 async def usercheck_task():await bot.usercheck()
 def isAuth(ctx):
- if isinstance(ctx, commands.Context):
+ if not isinstance(ctx, discord.Interaction):
   return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.manage_webhooks
   
  return True
@@ -217,13 +218,15 @@ async def embedstr(ctx, *, message: str):await embed(ctx, message)
 @messagesGroup.command(name = "file-embed", description = "Send a message based on a json file")
 async def embedf(ctx, *, json_file: discord.Attachment):await embed(ctx, await json_file.read())
 @messagesGroup.command(name = "say", description = "Say something")
-async def say(ctx, *, message: str):await embed(ctx, f'{{"content":"{message}"}}')
+async def say(ctx, *, message: str):
+ message = message.replace('\\\\n', '\\n').replace('\\n', '\n')
+ await embed(ctx, f'{{"content":"{message}"}}')
 @messagesResponseGroup.command(name = "embed", description = "Respond with a message based on a json string")
 async def rembedstr(ctx, *, message: str):await rembed(ctx, message)
 @messagesResponseGroup.command(name = "file-embed", description = "Respond with a message based on a json file")
 async def rembedf(ctx, *, json_file: discord.Attachment):await rembed(ctx, await json_file.read())
 @messagesResponseGroup.command(name = "say", description = "Respond by saying something")
-async def rsay(ctx, *, message: str):await Message(message).respond(ctx)
+async def rsay(ctx, *, message: str):await Message(message.replace('\\\\n', '\\n').replace('\\n', '\n')).respond(ctx)
 @messagesResponseGroup.command(name = "delete", description = "Deletes a response")
 async def delete(ctx, *, message_id: str):
  try:
@@ -241,6 +244,35 @@ async def codeblock(ctx, message):
 @utilityGroup.command(name = "buzz", description="Sends the bot's latency.")
 async def ping(ctx):
  await Message(f'Buzz! Latency is `{bot.latency}`', ephemeral=True).respond(ctx)
+@utilityGroup.command(name = "newlinify", description = "Turn newlines into \\n")
+async def newlinify(ctx, *, message_id: str):
+ try:
+  if reference_message := await ctx.fetch_message(message_id):
+   if reference_message.content != '':
+    await Message(reference_message.content.replace('\\n', '\\\\n').replace('\n','\\n'), ephemeral=True).respond(ctx)
+    return 
+   
+  
+ except discord.HTTPException:
+  pass
+ await Message('Newlinification failed!', ephemeral=True).respond(ctx)
+def nativeMessageDictify(message):
+ embeds = [e.to_dict() for e in message.embeds]
+ for e in embeds:
+  if (f := e.get("color")) is not None:
+   e.update( {"color": hex(f)} )
+  
+ return {"content": message.content,"embeds": embeds,"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None,"files": [e.url for e in message.attachments]}
+@utilityGroup.command(name = "jsonify", description = "Turn a message into json")
+async def jsonify(ctx, *, message_id: str):
+ try:
+  if reference_message := await ctx.fetch_message(message_id):
+   await Message.from_dict({ "embeds": [ { "description": f"```json\n{json.dumps(nativeMessageDictify(reference_message), indent=4)}\n```"} ], "ephemeral": True }).respond(ctx)
+   return 
+  
+ except discord.HTTPException:
+  pass
+ await Message('Newlinification failed!', ephemeral=True).respond(ctx)
 verificationGroup = bot.create_group("v", "Various verification-related commands")
 @verificationGroup.command(name = "verify", description="Verifies you if you are unverified")
 async def verify(ctx):
@@ -266,7 +298,7 @@ async def unverified_role(ctx, *, role: discord.Role):
   guilds.addg(guild)
   ext.guilds = guilds
   return 
- await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx)
+ await Message(permission_error, ephemeral=True).respond(ctx)
  
 @verificationGroup.command(name = "timeout", description="Sets the verification timeout")
 async def timeout(ctx, *, amt: float, time_interval: discord.Option(str, choices=['s', 'm', 'h', 'd', 'w'])):
@@ -279,7 +311,7 @@ async def timeout(ctx, *, amt: float, time_interval: discord.Option(str, choices
   guilds.addg(guild)
   ext.guilds = guilds
   return 
- await Message(f'Interaction failed - you might not have the required permissions, or the provided time interval is not a valid floating point number', ephemeral=True).respond(ctx)
+ await Message(permission_error, ephemeral=True).respond(ctx)
  
 @verificationGroup.command(name = "mtimeout", description="Sets the manual verification timeout")
 async def admin_timeout(ctx, *, amt: discord.SlashCommandOptionType.number, time_interval: discord.Option(str, choices=['s', 'm', 'h', 'd', 'w'])):
@@ -292,7 +324,7 @@ async def admin_timeout(ctx, *, amt: discord.SlashCommandOptionType.number, time
   guilds.addg(guild)
   ext.guilds = guilds
   return 
- await Message(f'Interaction failed - you might not have the required permissions, or the provided time interval is not a valid floating point number', ephemeral=True).respond(ctx)
+ await Message(permission_error, ephemeral=True).respond(ctx)
  
 @verificationGroup.command(name = "msg", description="Sets the verification message")
 async def set_verif_msg(ctx, *, message: str):
@@ -304,7 +336,7 @@ async def set_verif_msg(ctx, *, message: str):
   guilds.addg(guild)
   ext.guilds = guilds
   return 
- await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx)
+ await Message(permission_error, ephemeral=True).respond(ctx)
  
 @verificationGroup.command(name = "logmsg", description="Sets the verif-log message template (_ _user_ _ - mention of user, _ _username_ _ - username)")
 async def set_verif_log_msg(ctx, *, message: str):
@@ -316,7 +348,7 @@ async def set_verif_log_msg(ctx, *, message: str):
   guilds.addg(guild)
   ext.guilds = guilds
   return 
- await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx)
+ await Message(permission_error, ephemeral=True).respond(ctx)
  
 @verificationGroup.command(name = "logchannel", description="Sets the verif-log channel")
 async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
@@ -328,7 +360,7 @@ async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
   guilds.addg(guild)
   ext.guilds = guilds
   return 
- await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx)
+ await Message(permission_error, ephemeral=True).respond(ctx)
  
 @verificationGroup.command(name = "get", description="Sends the current verification config")
 async def set_verif_log_channel(ctx):
@@ -346,7 +378,7 @@ async def set_verif_log_channel(ctx):
 \> Verification log channel set to <#{guild.verif_log_channel}>.
 """,ephemeral=True).respond(ctx)
   return 
- await Message(f'Interaction failed - you might not have the required permissions', ephemeral=True).respond(ctx)
+ await Message(permission_error, ephemeral=True).respond(ctx)
  
 class manualVerificationView(discord.ui.View):
  id_get = lambda i: int(re.search(r'((?<=<@)\d*(?=>))', i.message.embeds[~0].footer.text).group(0))
@@ -361,14 +393,14 @@ class manualVerificationView(discord.ui.View):
    guilds.addg(guild_cache)
    ext.guilds = guilds
    await Message(f'<@{id}> has been verified!').respond(interaction)
-  
+  await Message(permission_error, ephemeral=True).respond(interaction)
  @discord.ui.button(label="Reject", style=discord.ButtonStyle.danger, emoji='\u274C')
  async def reject_callback(self, button, interaction):
   if isInteractionVerAuth(interaction):
    id = manualVerificationView.id_get(interaction)
    await (guild := interaction.guild).kick(guild.get_member(id), reason='Verification attempt was declined by staff')
    await Message(f'<@{id}> has been rejected and kicked!').respond(interaction)
-  
+  await Message(permission_error, ephemeral=True).respond(interaction)
  
 username_display = lambda user: f'{user.name}{f"#{user.discriminator}" if user.discriminator != "0" else ""}'
 def manualVerificationMessage(user, guild_cache):
@@ -382,7 +414,21 @@ def manualVerificationMessage(user, guild_cache):
 async def send_verification(ctx):
  if isVerAuth(ctx):
   await ext.guilds.getg(ctx.guild.id).verif_msg.respond(ctx)
- 
+  return 
+ await Message(permission_error, ephemeral=True).respond(ctx)
+@verificationGroup.command(name = "forceverif", description="Forces a user to be verified")
+async def force_verification(ctx, user: discord.Member):
+ if isVerAuth(ctx):
+  guilds = ext.guilds
+  guild_cache = guilds.getg(ctx.guild.id)
+  guild_cache.verif_admin_pending = [e for e in guild_cache.verif_admin_pending if e.id != user.id]
+  guild_cache.verif_pending = [e for e in guild_cache.verif_pending if e.id != user.id]
+  await user.remove_roles(ctx.guild.get_role(guild_cache.verif_role), reason='Verification forced')
+  guilds.addg(guild_cache)
+  ext.guilds = guilds
+  await Message(f'<@{user.id}> has been force-verified!').respond(ctx)
+  return 
+ await Message(permission_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "getverif", description="Gets a verification request")
 async def get_verification(ctx, user: discord.Member):
  if isVerAuth(ctx):
@@ -392,8 +438,9 @@ async def get_verification(ctx, user: discord.Member):
    msg.ephemeral = True
    await manualVerificationMessage(user, guild).set_view(manualVerificationView()).respond(ctx)
    return 
-  
- await ctx.respond('User is not manually verifiable.', ephemeral=True)
+  await ctx.respond('User is not manually verifiable.', ephemeral=True)
+  return 
+ await Message(permission_error, ephemeral=True).respond(ctx)
 @bot.listen()
 async def on_guild_join(guild):
  guilds = ext.guilds
