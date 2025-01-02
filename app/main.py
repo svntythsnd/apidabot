@@ -354,7 +354,7 @@ async def set_verif_msg(ctx, *, message: str):
   return 
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  
-@verificationGroup.command(name = "logmsg", description="Sets the verif-log message template (_ _user_ _ - mention of user, _ _username_ _ - username)")
+@verificationGroup.command(name = "logmsg", description="Sets the verif-log message template (_ _user_ _ - mention, _ _username_ _ - username, _ _id_ _ - id)")
 async def set_verif_log_msg(ctx, *, message: str):
  if isVerAuth(ctx):
   await Message(InfoMsg.set_vlog_message(jsonPrettify(message)), delete_after=15.0).respond(ctx)
@@ -379,10 +379,10 @@ async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  
 @verificationGroup.command(name = "get", description="Sends the current verification config")
-async def set_verif_log_channel(ctx):
+async def config_get(ctx):
  if isVerAuth(ctx):
   guild = ext.guilds.getg(ctx.guild.id)
-  await Message(f'## CONFIG FOR CURRENT GUILD \> Unverified role set to <@&{guild.verif_role}> \> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)} \> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)} \> Verification message set to: ```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}``` \> Verification log message template set to: ```json\n{json.dumps(guild.verif_log_msg.dictify(), indent=4)}``` \> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
+  await Message(f'## CONFIG FOR CURRENT GUILD\n\> Unverified role set to <@&{guild.verif_role}>\n\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(), indent=4)}```\n\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
   return 
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  
@@ -410,7 +410,7 @@ class manualVerificationView(discord.ui.View):
  
 username_display = lambda user: f'{user.name}{f"#{user.discriminator}" if user.discriminator != "0" else ""}'
 def manualVerificationMessage(user, guild_cache):
- msg = json.dumps(guild_cache.verif_log_msg.dictify()).replace('_ _user_ _', f'<@{user.id}>').replace('_ _username_ _', username_display(user))
+ msg = json.dumps(guild_cache.verif_log_msg.dictify()).replace('_ _user_ _', f'<@{user.id}>').replace('_ _username_ _', username_display(user)).replace('_ _id_ _', str(user.id))
  msg = safeload(msg)
  embeds = getDefault(msg, 'embeds', [])
  embeds.append({'footer': { 'text': f'>> <@{user.id}> | {username_display(user)}', 'icon_url': user.avatar.url } })
@@ -442,17 +442,17 @@ async def get_veriflist(ctx):
  if isVerAuth(ctx):
   guild = ext.guilds.getg(ctx.guild.id)
   if len(guild.verif_pending) > 0:
-   await Message('\n'.join([f'<@{x.id}>' for x in guild.verif_pending])).respond(ctx)
+   await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_pending])).respond(ctx)
   else:
    await Message('There are no unverified users!').respond(ctx)
   
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "mveriflist", description="Sends a list of all manually unverified users")
-async def get_veriflist(ctx):
+async def get_mveriflist(ctx):
  if isVerAuth(ctx):
   guild = ext.guilds.getg(ctx.guild.id)
   if len(guild.verif_admin_pending) > 0:
-   await Message('\n'.join([f'<@{x.id}>' for x in guild.verif_admin_pending])).respond(ctx)
+   await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_admin_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_admin_pending])).respond(ctx)
   else:
    await Message('There are no manually unverified users!').respond(ctx)
   
@@ -483,9 +483,11 @@ async def on_member_update(before, user):
  if not (guild_cache.verif_role in [role.id for role in user.roles]):
   guild_cache.verif_admin_pending = [e for e in guild_cache.verif_admin_pending if e.id != user.id]
   guild_cache.verif_pending = [e for e in guild_cache.verif_pending if e.id != user.id]
-  await user.remove_roles(user.guild.get_role(guild_cache.verif_role), reason=InfoMsg.force_verification_success_audit)
   guilds.addg(guild_cache)
   ext.guilds = guilds
-  
+ elif user.id not in [e.id for e in guild_cache.verif_admin_pending] + [e.id for e in guild_cache.verif_pending]:
+  guild_cache.verif_admin_pending.append(UserCache(user.id))
+  guilds.addg(guild_cache)
+  ext.guilds = guilds
  
 bot.run(token)
