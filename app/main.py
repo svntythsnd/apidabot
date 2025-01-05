@@ -1,5 +1,7 @@
 import time
 import datetime
+import requests
+import io
 import discord
 import json
 import re
@@ -175,6 +177,10 @@ class Message:
   self.ephemeral = ephemeral
   self.view = view
   
+ @property
+ def adapted_files(self):
+  if self.files is not None : return [e for e, u in self.files]
+  return None
  @classmethod
  def from_dict(cls, jsonDict):
   content = getDefault(jsonDict, 'content', '')
@@ -184,7 +190,7 @@ class Message:
     e.update({"color": int(f, 0)})
    
   embeds = [discord.Embed.from_dict(e) for e in embedDict]
-  files = [discord.File(e) for e in getDefault(jsonDict, 'files', [])]
+  files = [(discord.File(io.BytesIO(requests.get(url := getDefault(e, 'url', None)).content),filename=getDefault(e, 'filename', None),description=getDefault(e, 'description', None),spoiler=getDefault(e, 'spoiler', False)),url) for e in getDefault(jsonDict, 'files', [])]
   delete_after = jsonDict.get('delete_after')
   reference = jsonDict.get('reference')
   silent = getDefault(jsonDict, 'silent', False)
@@ -200,14 +206,14 @@ class Message:
    if (f := e.get("color")) is not None:
     e.update({"color": hex(f)})
    
-  return {'content': self.content,'embeds': embedList,'files': [e.fp for e in self.files],'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
+  return {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
  async def send(self, ctx):
   if isAuth(ctx):
-   return_message = await ctx.send(content=self.content,embeds=self.embeds,files=self.files,delete_after=self.delete_after,reference=(await ctx.channel.fetch_message(ctx.message.id if r <= 0 else r)if (r := self.reference) is not None else None),silent=self.silent,mention_author=self.mention_author)
+   return_message = await ctx.send(content=self.content,embeds=self.embeds,files=self.adapted_files,delete_after=self.delete_after,reference=(await ctx.channel.fetch_message(ctx.message.id if r <= 0 else r)if (r := self.reference) is not None else None),silent=self.silent,mention_author=self.mention_author)
    return return_message
   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  async def respond(self, ctx):
-  return_message = await ctx.respond(content=self.content,embeds=self.embeds,files=self.files,delete_after=self.delete_after,ephemeral=self.ephemeral,view=self.view)
+  return_message = await ctx.respond(content=self.content,embeds=self.embeds,files=self.adapted_files,delete_after=self.delete_after,ephemeral=self.ephemeral,view=self.view)
   return return_message
  
 ext = Ext()
@@ -225,9 +231,20 @@ messagesGroup = bot.create_group("wh", "Sending webhook-style messages")
 messagesResponseGroup = bot.create_group("r", "Sending response messages")
 utilityGroup = bot.create_group("u", "Various QOL commands")
 async def embed(ctx, message):
- await Message.from_dict(safeload(message)).send(ctx)
- await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx)
-async def rembed(ctx, message):await Message.from_dict(safeload(message)).respond(ctx)
+ try:
+  await Message.from_dict(safeload(message)).send(ctx)
+  await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx)
+  return 
+ except:
+  pass
+ await Message('Message failed to send!', ephemeral=True).respond(ctx)
+async def rembed(ctx, message):
+ try:
+  await Message.from_dict(safeload(message)).respond(ctx)
+  return 
+ except:
+  pass
+ await Message('Message failed to send!', ephemeral=True).respond(ctx)
 @messagesGroup.command(name = "embed", description = "Send a message based on a json string")
 async def embedstr(ctx, *, message: str):await embed(ctx, message)
 @messagesGroup.command(name = "file-embed", description = "Send a message based on a json file")
@@ -277,7 +294,7 @@ def nativeMessageDictify(message):
   if (f := e.get("color")) is not None:
    e.update( {"color": hex(f)} )
   
- return {"content": message.content,"embeds": embeds,"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None,"files": [e.url for e in message.attachments]}
+ return {"content": message.content,"embeds": embeds,"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments]}
 @utilityGroup.command(name = "jsonify", description = "Turn a message into json")
 async def jsonify(ctx, *, message_id: str):
  try:
@@ -287,7 +304,7 @@ async def jsonify(ctx, *, message_id: str):
   
  except discord.HTTPException:
   pass
- await Message('Newlinification failed!', ephemeral=True).respond(ctx)
+ await Message('Jsonification failed!', ephemeral=True).respond(ctx)
 verificationGroup = bot.create_group("v", "Various verification-related commands")
 verificationGroup.contexts = [discord.InteractionContextType.guild]
 @verificationGroup.command(name = "verify", description="Verifies you if you are unverified")

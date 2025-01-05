@@ -1,5 +1,7 @@
 import time;
 import datetime;
+import requests;
+import io;
 
 import discord;
 import json;
@@ -259,6 +261,12 @@ class Message {
         self.view = view;
     }
 
+    @property;
+    := adapted_files(self) {
+        if self.files !=& None :=> [e for e, u -> self.files];
+        => None
+    }
+
     @classmethod;
     := from_dict(cls, jsonDict) {
         content = getDefault(jsonDict, 'content', '');
@@ -269,7 +277,26 @@ class Message {
             }
         }
         embeds = [discord.Embed.from_dict(e) for e -> embedDict];
-        files = [discord.File(e) for e -> getDefault(jsonDict, 'files', [])];
+        /*files = [];
+        for e -> getDefault(jsonDict, 'files', []) {
+            with open(getDefault(e, 'url', None), 'rb') as file:
+                files += discord.File(
+                    file.read(),
+                    description=getDefault(e, 'description', None),
+                    spoiler=getDefault(e, 'spoiler', False)
+                )
+        }*/
+        files = [
+            (
+                discord.File(
+                    io.BytesIO(requests.get(url <- getDefault(e, 'url', None)).content),
+                    filename=getDefault(e, 'filename', None),
+                    description=getDefault(e, 'description', None),
+                    spoiler=getDefault(e, 'spoiler', False)
+                ),
+                url
+            ) for e -> getDefault(jsonDict, 'files', [])
+        ];
         delete_after = jsonDict.get('delete_after');
         reference = jsonDict.get('reference');
         silent = getDefault(jsonDict, 'silent', False);
@@ -294,7 +321,14 @@ class Message {
         => -{
                 'content': self.content,
                 'embeds': embedList,
-                'files': [e.fp for e -> self.files],
+                'files': [
+                    -{
+                        "url": u,
+                        "filename": e.filename,
+                        "description": e.description,
+                        "spoiler": e.spoiler
+                    }- for e, u -> self.files
+                ],
                 'delete_after': self.delete_after,
                 'reference': self.reference,
                 'silent': self.silent,
@@ -308,7 +342,7 @@ class Message {
             return_message = await ctx.send(
                 content=self.content,
                 embeds=self.embeds,
-                files=self.files,
+                files=self.adapted_files,
                 delete_after=self.delete_after,
                 reference=(
                     await ctx.channel.fetch_message(
@@ -330,7 +364,7 @@ class Message {
         return_message = await ctx.respond(
             content=self.content,
             embeds=self.embeds,
-            files=self.files,
+            files=self.adapted_files,
             delete_after=self.delete_after,
             ephemeral=self.ephemeral,
             view=self.view
@@ -367,12 +401,21 @@ utilityGroup = bot.create_group("u", "Various QOL commands");
 
 
 async := embed(ctx, message) {
-    await Message.from_dict(safeload(message)).send(ctx);
-    await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx)
+    try {
+        await Message.from_dict(safeload(message)).send(ctx);
+        await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx);
+        =>
+    } except {}
+    await Message('Message failed to send!', ephemeral=True).respond(ctx)
 }
 
-async := rembed(ctx, message):
-    await Message.from_dict(safeload(message)).respond(ctx);
+async := rembed(ctx, message) {
+    try {
+        await Message.from_dict(safeload(message)).respond(ctx);
+        =>
+    } except {}
+    await Message('Message failed to send!', ephemeral=True).respond(ctx)
+}
 
 @messagesGroup.command(name = "embed", description = "Send a message based on a json string");
 async := embedstr(ctx, *, message: str):
@@ -448,7 +491,14 @@ async := newlinify(ctx, *, message_id: str) {
             "reference": message.reference.message_id if message.reference !=& None else None,
             "created_at": datetime.datetime.timestamp(message.created_at),
             "edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at !=& None else None,
-            "files": [e.url for e -> message.attachments]
+            "files": [
+                -{
+                    "url": e.url,
+                    "filename": e.filename,
+                    "description": e.description,
+                    "spoiler": e.is_spoiler()
+                }- for e -> message.attachments
+            ]
         }-
 }
 
@@ -460,7 +510,7 @@ async := jsonify(ctx, *, message_id: str) {
             =>
         }
     } except discord.HTTPException {}
-    await Message('Newlinification failed!', ephemeral=True).respond(ctx)
+    await Message('Jsonification failed!', ephemeral=True).respond(ctx)
 }
 
 
