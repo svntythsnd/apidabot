@@ -164,7 +164,7 @@ class UserCache:
   return {'id': self.id,'created_at':  self.created_at}
  
 class Message:
- def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, silent=False, mention_author=False, ephemeral=False, view=None):
+ def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, silent=False, mention_author=False, ephemeral=False, view=None):
   for x in embeds, files:
    if x is None: x = []
   self.content = content
@@ -172,6 +172,7 @@ class Message:
   self.files = files
   self.delete_after = delete_after
   self.reference = reference
+  self.poll = poll
   self.silent = silent
   self.mention_author = mention_author
   self.ephemeral = ephemeral
@@ -191,12 +192,14 @@ class Message:
    
   embeds = [discord.Embed.from_dict(e) for e in embedDict]
   files = [(discord.File(io.BytesIO(requests.get(url := getDefault(e, 'url', None)).content),filename=getDefault(e, 'filename', None),description=getDefault(e, 'description', None),spoiler=getDefault(e, 'spoiler', False)),url) for e in getDefault(jsonDict, 'files', [])]
+  poll = jsonDict.get('poll')
+  if poll is not None: poll = discord.Poll(poll.get('question'), answers=[discord.PollAnswer(e.get('text'),emoji=(discord.PartialEmoji.from_str(emoji)if (emoji := e.get('emoji')) is not None else None)) for e in poll.get('answers')],duration=poll.get('duration'),allow_multiselect=getDefault(poll, 'allow_multiselect', False))
   delete_after = jsonDict.get('delete_after')
   reference = jsonDict.get('reference')
   silent = getDefault(jsonDict, 'silent', False)
   mention_author = getDefault(jsonDict, 'mention_author', False)
   ephemeral = getDefault(jsonDict, 'ephemeral', False)
-  return cls(content, embeds, files, delete_after, reference, silent, mention_author, ephemeral)
+  return cls(content, embeds, files, delete_after, reference, poll, silent, mention_author, ephemeral)
  def set_view(self, view):
   self.view = view
   return self
@@ -209,7 +212,7 @@ class Message:
   return {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
  async def send(self, ctx):
   if isAuth(ctx):
-   return_message = await ctx.send(content=self.content,embeds=self.embeds,files=self.adapted_files,delete_after=self.delete_after,reference=(await ctx.channel.fetch_message(ctx.message.id if r <= 0 else r)if (r := self.reference) is not None else None),silent=self.silent,mention_author=self.mention_author)
+   return_message = await ctx.send(content=self.content,embeds=self.embeds,files=self.adapted_files,delete_after=self.delete_after,reference=(await ctx.channel.fetch_message(ctx.message.id if r <= 0 else r)if (r := self.reference) is not None else None),poll=self.poll,silent=self.silent,mention_author=self.mention_author)
    return return_message
   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  async def respond(self, ctx):
@@ -226,6 +229,7 @@ def isAuth(ctx):
   
  return True
 isVerAuth = lambda ctx:ctx.author.guild_permissions.manage_guild
+isPinAuth = lambda ctx:ctx.author.guild_permissions.manage_messages
 isInteractionVerAuth = lambda interaction:interaction.user.guild_permissions.manage_guild
 messagesGroup = bot.create_group("wh", "Sending webhook-style messages")
 messagesResponseGroup = bot.create_group("r", "Sending response messages")
@@ -240,7 +244,9 @@ async def embed(ctx, message):
  await Message('Message failed to send!', ephemeral=True).respond(ctx)
 async def rembed(ctx, message):
  try:
-  await Message.from_dict(safeload(message)).respond(ctx)
+  message = Message.from_dict(safeload(message))
+  message.poll = None
+  await message.respond(ctx)
   return 
  except:
   pass
@@ -253,23 +259,66 @@ async def embedf(ctx, *, json_file: discord.Attachment):await embed(ctx, await j
 async def say(ctx, *, message: str):
  message = message.replace('\\\\n', '\\n').replace('\\n', '\n')
  await embed(ctx, f'{{"content":"{message}"}}')
+@messagesGroup.command(name = "closepoll", description = "Close a poll")
+async def closepoll(ctx, *, message_id: str):
+ try:
+  assert isAuth(ctx)
+  await (await ctx.fetch_message(message_id)).end_poll()
+  await Message('Poll closed!', ephemeral=True).respond(ctx)
+  return 
+ except:
+  pass
+ await Message('Poll closing failed!', ephemeral=True).respond(ctx)
+@messagesGroup.command(name = "pin", description = "Pin a message")
+async def pin(ctx, *, message_id: str, reason:str=None):
+ try:
+  assert isPinAuth(ctx)
+  assert isAuth(ctx)
+  await (await ctx.fetch_message(message_id)).pin(reason=reason)
+  await Message('Message pinned!', ephemeral=True).respond(ctx)
+  return 
+ except:
+  pass
+ await Message('Message pinning failed!', ephemeral=True).respond(ctx)
+@messagesGroup.command(name = "unpin", description = "Unpin a message")
+async def pin(ctx, *, message_id: str, reason:str=None):
+ try:
+  assert isPinAuth(ctx)
+  assert isAuth(ctx)
+  await (await ctx.fetch_message(message_id)).unpin(reason=reason)
+  await Message('Message unpinned!', ephemeral=True).respond(ctx)
+  return 
+ except:
+  pass
+ await Message('Message unpinning failed!', ephemeral=True).respond(ctx)
+@messagesGroup.command(name = "react", description = "React to a message")
+async def react(ctx, *, message_id: str, emoji: str):
+ try:
+  assert isAuth(ctx)
+  await (await ctx.fetch_message(message_id)).add_reaction(discord.PartialEmoji.from_str(emoji))
+  await Message('Reaction added!', ephemeral=True).respond(ctx)
+  return 
+ except:
+  pass
+ await Message('Reaction failed!', ephemeral=True).respond(ctx)
 @messagesResponseGroup.command(name = "embed", description = "Respond with a message based on a json string")
 async def rembedstr(ctx, *, message: str):await rembed(ctx, message)
 @messagesResponseGroup.command(name = "file-embed", description = "Respond with a message based on a json file")
 async def rembedf(ctx, *, json_file: discord.Attachment):await rembed(ctx, await json_file.read())
 @messagesResponseGroup.command(name = "say", description = "Respond by saying something")
 async def rsay(ctx, *, message: str):await Message(message.replace('\\\\n', '\\n').replace('\\n', '\n')).respond(ctx)
-@messagesResponseGroup.command(name = "delete", description = "Deletes a response")
+@messagesResponseGroup.command(name = "delete", description = "Deletes a message")
 async def delete(ctx, *, message_id: str):
  try:
-  if (reference_message := await ctx.fetch_message(message_id)).interaction.user.id == ctx.author.id:
+  reference_message = await ctx.fetch_message(message_id)
+  if isAuth(ctx) or reference_message.interaction.user.id == ctx.author.id:
    await reference_message.delete()
-   await Message('Response deleted successfully!', ephemeral=True).respond(ctx)
+   await Message('Message deleted successfully!', ephemeral=True).respond(ctx)
    return 
   
  except discord.HTTPException:
   pass
- await Message('Response delete failed!', ephemeral=True).respond(ctx)
+ await Message('Message delete failed!', ephemeral=True).respond(ctx)
 @utilityGroup.command(name = "codeblock", description = "Converts message to a codeblock")
 async def codeblock(ctx, message):
  await Message(f'```{message}```', ephemeral=True).respond(ctx)
@@ -294,7 +343,7 @@ def nativeMessageDictify(message):
   if (f := e.get("color")) is not None:
    e.update( {"color": hex(f)} )
   
- return {"content": message.content,"embeds": embeds,"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments]}
+ return {"content": message.content,"embeds": embeds,"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"users": [u.id for u in e.users()],"burst": e.me_burst} for e in message.reactions],"poll": {"duration": message.poll.duration,"allow_multiselect": message.poll.allow_multiselect,"question": message.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in message.poll.answers]} if message.poll is not None else None}
 @utilityGroup.command(name = "jsonify", description = "Turn a message into json")
 async def jsonify(ctx, *, message_id: str):
  try:

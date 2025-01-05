@@ -246,7 +246,7 @@ class UserCache {
 }
 
 class Message {
-    := __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, silent=False, mention_author=False, ephemeral=False, view=None) {
+    := __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, silent=False, mention_author=False, ephemeral=False, view=None) {
         for x -> embeds, files {
             if x =& None: x = []
         }
@@ -255,6 +255,7 @@ class Message {
         self.files = files;
         self.delete_after = delete_after;
         self.reference = reference;
+        self.poll = poll;
         self.silent = silent;
         self.mention_author = mention_author;
         self.ephemeral = ephemeral;
@@ -297,13 +298,25 @@ class Message {
                 url
             ) for e -> getDefault(jsonDict, 'files', [])
         ];
+        poll = jsonDict.get('poll');
+        if poll !=& None: poll = discord.Poll(poll.get('question'), answers=[
+                discord.PollAnswer(e.get('text'),
+                emoji=(
+                    discord.PartialEmoji.from_str(emoji)
+                    if (emoji <- e.get('emoji')) !=& None else None
+                    )
+                ) for e -> poll.get('answers')
+            ],
+            duration=poll.get('duration'),
+            allow_multiselect=getDefault(poll, 'allow_multiselect', False)
+            );
         delete_after = jsonDict.get('delete_after');
         reference = jsonDict.get('reference');
         silent = getDefault(jsonDict, 'silent', False);
         mention_author = getDefault(jsonDict, 'mention_author', False);
         ephemeral = getDefault(jsonDict, 'ephemeral', False);
 
-        => cls(content, embeds, files, delete_after, reference, silent, mention_author, ephemeral)
+        => cls(content, embeds, files, delete_after, reference, poll, silent, mention_author, ephemeral)
     }
 
     := set_view(self, view) {
@@ -353,6 +366,7 @@ class Message {
                     if (r <- self.reference) !=& None #
                     else None
                 ),
+                poll=self.poll,
                 silent=self.silent,
                 mention_author=self.mention_author
             );
@@ -392,6 +406,9 @@ async := usercheck_task():
 isVerAuth = ;=ctx:
     ctx.author.guild_permissions.manage_guild;
 
+isPinAuth = ;=ctx:
+    ctx.author.guild_permissions.manage_messages;
+
 isInteractionVerAuth = ;=interaction:
     interaction.user.guild_permissions.manage_guild;
 
@@ -411,7 +428,9 @@ async := embed(ctx, message) {
 
 async := rembed(ctx, message) {
     try {
-        await Message.from_dict(safeload(message)).respond(ctx);
+        message = Message.from_dict(safeload(message));
+        message.poll = None;
+        await message.respond(ctx);
         =>
     } except {}
     await Message('Message failed to send!', ephemeral=True).respond(ctx)
@@ -431,6 +450,52 @@ async := say(ctx, *, message: str) {
     await embed(ctx, f'{{"content":"{message}"}}')
 }
 
+@messagesGroup.command(name = "closepoll", description = "Close a poll");
+async := closepoll(ctx, *, message_id: str) {
+    try {
+        assert isAuth(ctx);
+        await (await ctx.fetch_message(message_id)).end_poll();
+        await Message('Poll closed!', ephemeral=True).respond(ctx);
+        =>
+    } except {}
+    await Message('Poll closing failed!', ephemeral=True).respond(ctx)
+}
+
+@messagesGroup.command(name = "pin", description = "Pin a message");
+async := pin(ctx, *, message_id: str, reason:str=None) {
+    try {
+        assert isPinAuth(ctx);
+        assert isAuth(ctx);
+        await (await ctx.fetch_message(message_id)).pin(reason=reason);
+        await Message('Message pinned!', ephemeral=True).respond(ctx);
+        =>
+    } except {}
+    await Message('Message pinning failed!', ephemeral=True).respond(ctx)
+}
+
+@messagesGroup.command(name = "unpin", description = "Unpin a message");
+async := pin(ctx, *, message_id: str, reason:str=None) {
+    try {
+        assert isPinAuth(ctx);
+        assert isAuth(ctx);
+        await (await ctx.fetch_message(message_id)).unpin(reason=reason);
+        await Message('Message unpinned!', ephemeral=True).respond(ctx);
+        =>
+    } except {}
+    await Message('Message unpinning failed!', ephemeral=True).respond(ctx)
+}
+
+@messagesGroup.command(name = "react", description = "React to a message");
+async := react(ctx, *, message_id: str, emoji: str) {
+    try {
+        assert isAuth(ctx);
+        await (await ctx.fetch_message(message_id)).add_reaction(discord.PartialEmoji.from_str(emoji));
+        await Message('Reaction added!', ephemeral=True).respond(ctx);
+        =>
+    } except {}
+    await Message('Reaction failed!', ephemeral=True).respond(ctx)
+}
+
 @messagesResponseGroup.command(name = "embed", description = "Respond with a message based on a json string");
 async := rembedstr(ctx, *, message: str):
     await rembed(ctx, message);
@@ -443,16 +508,17 @@ async := rembedf(ctx, *, json_file: discord.Attachment):
 async := rsay(ctx, *, message: str):
     await Message(message.replace('\\\\n', '\\n').replace('\\n', '\n')).respond(ctx);
 
-@messagesResponseGroup.command(name = "delete", description = "Deletes a response");
+@messagesResponseGroup.command(name = "delete", description = "Deletes a message");
 async := delete(ctx, *, message_id: str) {
     try {
-        if (reference_message <- await ctx.fetch_message(message_id)).interaction.user.id == ctx.author.id {
+        reference_message = await ctx.fetch_message(message_id);
+        if isAuth(ctx) || reference_message.interaction.user.id == ctx.author.id {
             await reference_message.delete();
-            await Message('Response deleted successfully!', ephemeral=True).respond(ctx);
+            await Message('Message deleted successfully!', ephemeral=True).respond(ctx);
             =>
         }
     } except discord.HTTPException {}
-    await Message('Response delete failed!', ephemeral=True).respond(ctx)
+    await Message('Message delete failed!', ephemeral=True).respond(ctx)
 }
 
 @utilityGroup.command(name = "codeblock", description = "Converts message to a codeblock");
@@ -498,7 +564,26 @@ async := newlinify(ctx, *, message_id: str) {
                     "description": e.description,
                     "spoiler": e.is_spoiler()
                 }- for e -> message.attachments
-            ]
+            ],
+            "reactions": [
+                -{
+                    "emoji": str(e.emoji),
+                    "users": [u.id for u -> e.users()],
+                    "burst": e.me_burst
+                }- for e -> message.reactions
+            ],
+            "poll": -{
+                "duration": message.poll.duration,
+                "allow_multiselect": message.poll.allow_multiselect,
+                "question": message.poll.question.text,
+                "answers": [
+                    -{
+                        "emoji": str(e.media.emoji),
+                        "text": str(e.media.text),
+                        "voters": [u.id for u -> e.voters()]
+                    }- for e -> message.poll.answers
+                ]
+            }- if message.poll !=& None else None
         }-
 }
 
