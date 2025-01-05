@@ -164,7 +164,7 @@ class UserCache:
   return {'id': self.id,'created_at':  self.created_at}
  
 class Message:
- def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, silent=False, mention_author=False, ephemeral=False, view=None):
+ def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, silent=False, mention_author=True, ephemeral=False, view=None):
   for x in embeds, files:
    if x is None: x = []
   self.content = content
@@ -197,7 +197,7 @@ class Message:
   delete_after = jsonDict.get('delete_after')
   reference = jsonDict.get('reference')
   silent = getDefault(jsonDict, 'silent', False)
-  mention_author = getDefault(jsonDict, 'mention_author', False)
+  mention_author = getDefault(jsonDict, 'mention_author', True)
   ephemeral = getDefault(jsonDict, 'ephemeral', False)
   return cls(content, embeds, files, delete_after, reference, poll, silent, mention_author, ephemeral)
  def set_view(self, view):
