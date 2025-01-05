@@ -246,8 +246,8 @@ class UserCache {
 }
 
 class Message {
-    := __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, silent=False, mention_author=True, ephemeral=False, view=None) {
-        for x -> embeds, files {
+    := __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, view=None) {
+        for x -> embeds, files, stickers {
             if x =& None: x = []
         }
         self.content = content;
@@ -256,6 +256,7 @@ class Message {
         self.delete_after = delete_after;
         self.reference = reference;
         self.poll = poll;
+        self.stickers = stickers;
         self.silent = silent;
         self.mention_author = mention_author;
         self.ephemeral = ephemeral;
@@ -310,13 +311,14 @@ class Message {
             duration=poll.get('duration'),
             allow_multiselect=getDefault(poll, 'allow_multiselect', False)
             );
+        stickers = getDefault(jsonDict, 'stickers', []);
         delete_after = jsonDict.get('delete_after');
         reference = jsonDict.get('reference');
         silent = getDefault(jsonDict, 'silent', False);
         mention_author = getDefault(jsonDict, 'mention_author', True);
         ephemeral = getDefault(jsonDict, 'ephemeral', False);
 
-        => cls(content, embeds, files, delete_after, reference, poll, silent, mention_author, ephemeral)
+        => cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral)
     }
 
     := set_view(self, view) {
@@ -342,6 +344,19 @@ class Message {
                         "spoiler": e.spoiler
                     }- for e, u -> self.files
                 ],
+                'poll':  -{
+                    "duration": self.poll.duration,
+                    "allow_multiselect": self.poll.allow_multiselect,
+                    "question": self.poll.question.text,
+                    "answers": [
+                        -{
+                            "emoji": str(e.media.emoji),
+                            "text": str(e.media.text),
+                            "voters": [u.id for u -> e.voters()]
+                        }- for e -> self.poll.answers
+                    ]
+                }- if self.poll !=& None else None,
+                'stickers': self.stickers,
                 'delete_after': self.delete_after,
                 'reference': self.reference,
                 'silent': self.silent,
@@ -368,7 +383,8 @@ class Message {
                 ),
                 poll=self.poll,
                 silent=self.silent,
-                mention_author=self.mention_author
+                mention_author=self.mention_author,
+                stickers=[await bot.fetch_sticker(e) for e -> self.stickers]
             );
         => return_message
         } await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
@@ -408,6 +424,9 @@ isVerAuth = ;=ctx:
 
 isPinAuth = ;=ctx:
     ctx.author.guild_permissions.manage_messages;
+
+isReactAuth = ;=ctx:
+    ctx.author.guild_permissions.add_reactions;
 
 isInteractionVerAuth = ;=interaction:
     interaction.user.guild_permissions.manage_guild;
@@ -554,9 +573,6 @@ async := newlinify(ctx, *, message_id: str) {
     => -{
             "content": message.content,
             "embeds": embeds,
-            "reference": message.reference.message_id if message.reference !=& None else None,
-            "created_at": datetime.datetime.timestamp(message.created_at),
-            "edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at !=& None else None,
             "files": [
                 -{
                     "url": e.url,
@@ -583,7 +599,11 @@ async := newlinify(ctx, *, message_id: str) {
                         "voters": [u.id for u -> e.voters()]
                     }- for e -> message.poll.answers
                 ]
-            }- if message.poll !=& None else None
+            }- if message.poll !=& None else None,
+            "stickers": [e.id for e -> message.stickers],
+            "reference": message.reference.message_id if message.reference !=& None else None,
+            "created_at": datetime.datetime.timestamp(message.created_at),
+            "edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at !=& None else None
         }-
 }
 
@@ -823,7 +843,7 @@ async := get_mveriflist(ctx) {
 @bot.listen();
 async := on_guild_join(guild) {
     guilds = ext.guilds;
-    guilds.addg(CachedGuild(guild.id));
+    guilds.addg(await CachedGuild(guild.id));
     ext.guilds = guilds
 }
 
