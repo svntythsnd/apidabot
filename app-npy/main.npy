@@ -68,6 +68,19 @@ intents = discord.Intents(
     => out
 }
 
+:= filter_none(dt) {
+    filtered_dt = -{}-;
+    for k, v -> dt.items() {
+        if any([
+            v -> [[],-{}-,None,''],
+            (k -> ['mention_author']) == v
+            ]): continue;
+        if isinstance(v, dict): v = filter_none(v);
+        elif isinstance(v, list): v = [filter_none(e) for e -> v];
+        filtered_dt.update(-{k: v}-)
+    } => filtered_dt
+}
+
 class theClient(commands.Bot) {
   := __init__(self) {
     super().__init__(intents=intents);
@@ -327,14 +340,14 @@ class Message {
         => self
     }
 
-    := dictify(self) {
+    := dictify(self, shorten=True) {
         embedList = [e.to_dict() for e -> self.embeds];
         for e -> embedList {
             if (f <- e.get("color")) !=& None {
                 e.update(-{"color": hex(f)}-)
             }
         }
-        => -{
+        dictified = -{
                 'content': self.content,
                 'embeds': embedList,
                 'files': [
@@ -363,7 +376,9 @@ class Message {
                 'silent': self.silent,
                 'mention_author': self.mention_author,
                 'ephemeral': self.ephemeral
-            }-
+            }-;
+        if shorten: dictified = filter_none(dictified);
+        => dictified
     }
 
     async := send(self, ctx) {
@@ -564,14 +579,15 @@ async := newlinify(ctx, *, message_id: str) {
     await Message('Newlinification failed!', ephemeral=True).respond(ctx)
 }
 
-:= nativeMessageDictify(message) {
+:= nativeMessageDictify(message, shorten=True) {
     embeds = [e.to_dict() for e -> message.embeds];
     for e -> embeds {
         if (f <- e.get("color")) !=& None {
             e.update( -{"color": hex(f)}- )
         }
     }
-    => -{
+
+    dictified = -{
             "content": message.content,
             "embeds": embeds,
             "files": [
@@ -605,24 +621,16 @@ async := newlinify(ctx, *, message_id: str) {
             "reference": message.reference.message_id if message.reference !=& None else None,
             "created_at": datetime.datetime.timestamp(message.created_at),
             "edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at !=& None else None
-        }-
+        }-;
+    if shorten: dictified = filter_none(dictified);
+    => dictified
 }
 
 @utilityGroup.command(name = "jsonify", description = "Turn a message into json");
 async := jsonify(ctx, *, message_id: str) {
     try {
         if reference_message <- await ctx.fetch_message(message_id) {
-            := filter_none(dt) {
-                filtered_dt = -{}-;
-                for k, v -> dt.items() {
-                    if v -> [[],-{}-,None,'']: continue;
-                    if isinstance(v, dict): v = filter_none(v);
-                    elif isinstance(v, list): v = [filter_none(e) for e -> v];
-                    filtered_dt.update(-{k: v}-)
-                }
-                => filtered_dt
-            }
-            await Message.from_dict(-{ "embeds": [ -{ "description": f"```json\n{json.dumps(filter_none(nativeMessageDictify(reference_message)), indent=4)}\n```"}- ], "ephemeral": True }-).respond(ctx);
+            await Message.from_dict(-{ "embeds": [ -{ "description": f"```json\n{json.dumps(nativeMessageDictify(reference_message), indent=4)}\n```"}- ], "ephemeral": True }-).respond(ctx);
             =>
         }
     } except discord.HTTPException {}
@@ -739,7 +747,7 @@ async := config_get(ctx) {
              \> Verification message set to:\n\
              ```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\
              \> Verification log message template set to:\n\
-             ```json\n{json.dumps(guild.verif_log_msg.dictify(), indent=4)}```\n\
+             ```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\
              \> Verification log channel set to <#{guild.verif_log_channel}>.',
              ephemeral=True
         ).respond(ctx);
