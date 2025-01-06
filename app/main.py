@@ -49,6 +49,14 @@ def safeload(string):
   print(e)
   out = {}
  return out
+def filter_none(dt):
+ filtered_dt = {}
+ for k, v in dt.items():
+  if any([v in [[],{},None,''],(k in ['mention_author']) == v]): continue
+  if isinstance(v, dict): v = filter_none(v)
+  elif isinstance(v, list): v = [filter_none(e) for e in v]
+  filtered_dt.update({k: v})
+ return filtered_dt
 class theClient(commands.Bot):
  def __init__(self):
   super().__init__(intents=intents)
@@ -149,8 +157,10 @@ class CachedGuild:
  def verif_log_msg_from_dict(self, verif_log_msg):
   self.verif_log_msg = Message.from_dict(verif_log_msg)
   
- def dictify(self):
-  return {'verif_role': self.verif_role,'verif_msg': self.verif_msg.dictify(),'verif_log_msg': self.verif_log_msg.dictify(),'verif_log_channel': self.verif_log_channel,'verif_timeout': self.verif_timeout,'verif_admin_timeout': self.verif_admin_timeout,'verif_pending': [e.dictify() for e in self.verif_pending],'verif_admin_pending': [e.dictify() for e in self.verif_admin_pending]}
+ def dictify(self, shorten=True):
+  dictified = {'verif_role': self.verif_role,'verif_msg': self.verif_msg.dictify(),'verif_log_msg': self.verif_log_msg.dictify(),'verif_log_channel': self.verif_log_channel,'verif_timeout': self.verif_timeout,'verif_admin_timeout': self.verif_admin_timeout,'verif_pending': [e.dictify() for e in self.verif_pending],'verif_admin_pending': [e.dictify() for e in self.verif_admin_pending]}
+  if shorten: dictified = filter_none(dictified)
+  return dictified
  
 class UserCache:
  def __init__(self, id, created_at=None):
@@ -206,13 +216,15 @@ class Message:
  def set_view(self, view):
   self.view = view
   return self
- def dictify(self):
+ def dictify(self, shorten=True):
   embedList = [e.to_dict() for e in self.embeds]
   for e in embedList:
    if (f := e.get("color")) is not None:
     e.update({"color": hex(f)})
    
-  return {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": self.poll.duration,"allow_multiselect": self.poll.allow_multiselect,"question": self.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in self.poll.answers]} if self.poll is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
+  dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": self.poll.duration,"allow_multiselect": self.poll.allow_multiselect,"question": self.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in self.poll.answers]} if self.poll is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
+  if shorten: dictified = filter_none(dictified)
+  return dictified
  async def send(self, ctx):
   if isAuth(ctx):
    return_message = await ctx.send(content=self.content,embeds=self.embeds,files=self.adapted_files,delete_after=self.delete_after,reference=(await ctx.channel.fetch_message(ctx.message.id if r <= 0 else r)if (r := self.reference) is not None else None),poll=self.poll,silent=self.silent,mention_author=self.mention_author,stickers=[await bot.fetch_sticker(e) for e in self.stickers])
@@ -341,26 +353,20 @@ async def newlinify(ctx, *, message_id: str):
  except discord.HTTPException:
   pass
  await Message('Newlinification failed!', ephemeral=True).respond(ctx)
-def nativeMessageDictify(message):
+def nativeMessageDictify(message, shorten=True):
  embeds = [e.to_dict() for e in message.embeds]
  for e in embeds:
   if (f := e.get("color")) is not None:
    e.update( {"color": hex(f)} )
   
- return {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"users": [u.id for u in e.users()],"burst": e.me_burst} for e in message.reactions],"poll": {"duration": message.poll.duration,"allow_multiselect": message.poll.allow_multiselect,"question": message.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in message.poll.answers]} if message.poll is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
+ dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"users": [u.id for u in e.users()],"burst": e.me_burst} for e in message.reactions],"poll": {"duration": message.poll.duration,"allow_multiselect": message.poll.allow_multiselect,"question": message.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in message.poll.answers]} if message.poll is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
+ if shorten: dictified = filter_none(dictified)
+ return dictified
 @utilityGroup.command(name = "jsonify", description = "Turn a message into json")
 async def jsonify(ctx, *, message_id: str):
  try:
   if reference_message := await ctx.fetch_message(message_id):
-   def filter_none(dt):
-    filtered_dt = {}
-    for k, v in dt.items():
-     if v in [[],{},None,'']: continue
-     if isinstance(v, dict): v = filter_none(v)
-     elif isinstance(v, list): v = [filter_none(e) for e in v]
-     filtered_dt.update({k: v})
-    return filtered_dt
-   await Message.from_dict({ "embeds": [ { "description": f"```json\n{json.dumps(filter_none(nativeMessageDictify(reference_message)), indent=4)}\n```"} ], "ephemeral": True }).respond(ctx)
+   await Message.from_dict({ "embeds": [ { "description": f"```json\n{json.dumps(nativeMessageDictify(reference_message), indent=4)}\n```"} ], "ephemeral": True }).respond(ctx)
    return 
   
  except discord.HTTPException:
@@ -460,7 +466,7 @@ async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
 async def config_get(ctx):
  if isVerAuth(ctx):
   guild = ext.guilds.getg(ctx.guild.id)
-  await Message(f'## CONFIG FOR CURRENT GUILD\n\> Unverified role set to <@&{guild.verif_role}>\n\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(), indent=4)}```\n\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
+  await Message(f'## CONFIG FOR CURRENT GUILD\n\> Unverified role set to <@&{guild.verif_role}>\n\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
   return 
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  
