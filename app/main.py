@@ -2,6 +2,7 @@ import time
 import datetime
 import requests
 import io
+from collections.abc import Iterable
 import discord
 import json
 import re
@@ -351,7 +352,15 @@ def nativeMessageDictify(message):
 async def jsonify(ctx, *, message_id: str):
  try:
   if reference_message := await ctx.fetch_message(message_id):
-   await Message.from_dict({ "embeds": [ { "description": f"```json\n{json.dumps(nativeMessageDictify(reference_message), indent=4)}\n```"} ], "ephemeral": True }).respond(ctx)
+   def filter_none(dt):
+    filtered_dt = {}
+    for k, v in dt.items():
+     if v in [[],{},None,'']: continue
+     if isinstance(v, dict): v = filter_none(v)
+     elif isinstance(v, list): v = [filter_none(e) for e in v]
+     filtered_dt.update({k: v})
+    return filtered_dt
+   await Message.from_dict({ "embeds": [ { "description": f"```json\n{json.dumps(filter_none(nativeMessageDictify(reference_message)), indent=4)}\n```"} ], "ephemeral": True }).respond(ctx)
    return 
   
  except discord.HTTPException:

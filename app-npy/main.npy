@@ -2,6 +2,7 @@ import time;
 import datetime;
 import requests;
 import io;
+from collections.abc import Iterable;
 
 import discord;
 import json;
@@ -611,7 +612,17 @@ async := newlinify(ctx, *, message_id: str) {
 async := jsonify(ctx, *, message_id: str) {
     try {
         if reference_message <- await ctx.fetch_message(message_id) {
-            await Message.from_dict(-{ "embeds": [ -{ "description": f"```json\n{json.dumps(nativeMessageDictify(reference_message), indent=4)}\n```"}- ], "ephemeral": True }-).respond(ctx);
+            := filter_none(dt) {
+                filtered_dt = -{}-;
+                for k, v -> dt.items() {
+                    if v -> [[],-{}-,None,'']: continue;
+                    if isinstance(v, dict): v = filter_none(v);
+                    elif isinstance(v, list): v = [filter_none(e) for e -> v];
+                    filtered_dt.update(-{k: v}-)
+                }
+                => filtered_dt
+            }
+            await Message.from_dict(-{ "embeds": [ -{ "description": f"```json\n{json.dumps(filter_none(nativeMessageDictify(reference_message)), indent=4)}\n```"}- ], "ephemeral": True }-).respond(ctx);
             =>
         }
     } except discord.HTTPException {}
