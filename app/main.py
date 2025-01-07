@@ -42,12 +42,8 @@ class TimeUnits:
  unit_map = lambda unit: TimeUnits.unit_dict.get(unit)
 intents = discord.Intents(message_content = True,guilds = True,members = True,)
 def safeload(string):
- try:
-  out = json.loads(string)
- except json.JSONDecodeError as e:
-  print(e)
-  out = {}
- return out
+ try : return json.loads(string)
+ except json.JSONDecodeError : return {}
 def filter_none(dt):
  filtered_dt = {}
  for k, v in dt.items():
@@ -95,46 +91,31 @@ class theClient(commands.Bot):
   ext.guilds = GuildCache(newguilds)
  
 def getDefault(dct, key, default):
- try:
-  return dct[key]
- except KeyError:
-  return default
- 
+ try : return dct[key]
+ except KeyError : return default
 class Ext:
  @property
  def guilds(self):
-  with open(path, 'r') as f:
-   return GuildCache(getDefault(safeload(f.read()), 'guilds', {}))
-  
+  with open(path, 'r') as f : return GuildCache(getDefault(safeload(f.read()), 'guilds', {}))
  @guilds.setter
  def guilds(self, new):
   with open(path, 'r') as f:
    extDict = safeload(f.read())
    extDict.update({'guilds': new.getall()})
-  with open(path, 'w') as f:
-   f.write(json.dumps(extDict))
-  
+  with open(path, 'w') as f: f.write(json.dumps(extDict, indent=4))
  
 class GuildCache:
- def __init__(self, v: dict):
-  self._v = {i: CachedGuild(i, v[i]) for i in v}
-  
- def getg(self, id):
-  return getDefault(self._v, str(id), CachedGuild(id, {}))
+ def __init__(self, v: dict): self._v = {i: CachedGuild(i, v[i]) for i in v}
+ def getg(self, id) : return getDefault(self._v, str(id), CachedGuild(id, {}))
  def getall(self):
   out = {}
-  for e in self._v:
-   out.update({e: self._v[e].dictify()})
+  for e in self._v: out.update({e: self._v[e].dictify()})
   return out
- def getids(self):
-  return [int(e) for e in self._v]
- def setg(self, id, value):
-  self._v.update({str(id): value})
- def addg(self, value):
-  self._v.update({str(value.id): value})
+ def getids(self) : return [int(e) for e in self._v]
+ def setg(self, id, value): self._v.update({str(id): value})
+ def addg(self, value): self._v.update({str(value.id): value})
  def remg(self, id):
-  try:
-   self._v.pop(str(id))
+  try: self._v.pop(str(id))
   except KeyError:
    pass
   
@@ -151,12 +132,8 @@ class CachedGuild:
   self.verif_admin_timeout = getDefault(jsonDict, 'verif_admin_timeout', 2*TimeUnits.day)
   self.verif_pending = [UserCache.from_dict(e) for e in getDefault(jsonDict, 'verif_pending', [])]
   self.verif_admin_pending = [UserCache.from_dict(e) for e in getDefault(jsonDict, 'verif_admin_pending', [])]
- def verif_msg_from_dict(self, verif_msg):
-  self.verif_msg = Message.from_dict(verif_msg)
-  
- def verif_log_msg_from_dict(self, verif_log_msg):
-  self.verif_log_msg = Message.from_dict(verif_log_msg)
-  
+ def verif_msg_from_dict(self, verif_msg): self.verif_msg = Message.from_dict(verif_msg)
+ def verif_log_msg_from_dict(self, verif_log_msg): self.verif_log_msg = Message.from_dict(verif_log_msg)
  def dictify(self, shorten=True):
   dictified = {'verif_role': self.verif_role,'verif_msg': self.verif_msg.dictify(),'verif_log_msg': self.verif_log_msg.dictify(),'verif_log_channel': self.verif_log_channel,'verif_timeout': self.verif_timeout,'verif_admin_timeout': self.verif_admin_timeout,'verif_pending': [e.dictify() for e in self.verif_pending],'verif_admin_pending': [e.dictify() for e in self.verif_admin_pending]}
   if shorten: dictified = filter_none(dictified)
@@ -171,8 +148,7 @@ class UserCache:
   id = jsonDict.get('id')
   created_at = jsonDict.get('created_at')
   return cls(id, created_at)
- def dictify(self):
-  return {'id': self.id,'created_at':  self.created_at}
+ def dictify(self) : return {'id': self.id,'created_at':  self.created_at}
  
 class Message:
  def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, view=None):
@@ -199,9 +175,7 @@ class Message:
   content = getDefault(jsonDict, 'content', '')
   embedDict = getDefault(jsonDict, 'embeds', [])
   for e in embedDict:
-   if (f := e.get("color")) is not None and f.__class__ != int:
-    e.update({"color": int(f, 0)})
-   
+   if (f := e.get("color")) is not None and f.__class__ != int: e.update({"color": int(f, 0)})
   embeds = [discord.Embed.from_dict(e) for e in embedDict]
   files = [(discord.File(io.BytesIO(requests.get(url := getDefault(e, 'url', None)).content),filename=getDefault(e, 'filename', None),description=getDefault(e, 'description', None),spoiler=getDefault(e, 'spoiler', False)),url) for e in getDefault(jsonDict, 'files', [])]
   poll = jsonDict.get('poll')
@@ -219,9 +193,7 @@ class Message:
  def dictify(self, shorten=True):
   embedList = [e.to_dict() for e in self.embeds]
   for e in embedList:
-   if (f := e.get("color")) is not None:
-    e.update({"color": hex(f)})
-   
+   if (f := e.get("color")) is not None: e.update({"color": hex(f)})
   dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": self.poll.duration,"allow_multiselect": self.poll.allow_multiselect,"question": self.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in self.poll.answers]} if self.poll is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
   if shorten: dictified = filter_none(dictified)
   return dictified
@@ -239,9 +211,7 @@ bot = theClient()
 @tasks.loop(seconds=5)
 async def usercheck_task():await bot.usercheck()
 def isAuth(ctx):
- if isinstance(ctx, commands.Context):
-  return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.manage_webhooks
-  
+ if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.manage_webhooks
  return True
 isVerAuth = lambda ctx:ctx.author.guild_permissions.manage_guild
 isPinAuth = lambda ctx:ctx.author.guild_permissions.manage_messages
@@ -344,11 +314,9 @@ async def ping(ctx):
 @utilityGroup.command(name = "newlinify", description = "Turn newlines into \\n")
 async def newlinify(ctx, *, message_id: str):
  try:
-  if reference_message := await ctx.fetch_message(message_id):
-   if reference_message.content != '':
-    await Message(reference_message.content.replace('\\n', '\\\\n').replace('\n','\\n'), ephemeral=True).respond(ctx)
-    return 
-   
+  if reference_message := await ctx.fetch_message(message_id) and reference_message.content != '':
+   await Message(reference_message.content.replace('\\n', '\\\\n').replace('\n','\\n'), ephemeral=True).respond(ctx)
+   return 
   
  except discord.HTTPException:
   pass
@@ -356,9 +324,7 @@ async def newlinify(ctx, *, message_id: str):
 def nativeMessageDictify(message, shorten=True):
  embeds = [e.to_dict() for e in message.embeds]
  for e in embeds:
-  if (f := e.get("color")) is not None:
-   e.update( {"color": hex(f)} )
-  
+  if (f := e.get("color")) is not None: e.update( {"color": hex(f)} )
  dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"users": [u.id for u in e.users()],"burst": e.me_burst} for e in message.reactions],"poll": {"duration": message.poll.duration,"allow_multiselect": message.poll.allow_multiselect,"question": message.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in message.poll.answers]} if message.poll is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
  if shorten: dictified = filter_none(dictified)
  return dictified
@@ -376,100 +342,124 @@ verificationGroup = bot.create_group("v", "Various verification-related commands
 verificationGroup.contexts = [discord.InteractionContextType.guild]
 @verificationGroup.command(name = "verify", description="Verifies you if you are unverified")
 async def verify(ctx):
- guild = ext.guilds.getg(ctx.guild.id)
- if any(e.id == ctx.author.id for e in guild.verif_pending) and not any(e.id == ctx.author.id for e in guild.verif_admin_pending):
-  await Message(InfoMsg.verification_accepted, ephemeral=True).respond(ctx)
-  guilds = ext.guilds
-  guild.verif_pending = [e for e in guild.verif_pending if e.id != ctx.user.id]
-  guild.verif_admin_pending.append(UserCache(ctx.user.id))
-  guilds.addg(guild)
-  await manualVerificationMessage(ctx.user, guild).send(ctx.guild.get_channel(guild.verif_log_channel))
-  ext.guilds = guilds
- else:
-  await Message(InfoMsg.verification_denied, ephemeral=True, delete_after=3.0).respond(ctx) 
- 
+ try:
+  guild = ext.guilds.getg(ctx.guild.id)
+  if any(e.id == ctx.author.id for e in guild.verif_pending) and not any(e.id == ctx.author.id for e in guild.verif_admin_pending):
+   await Message(InfoMsg.verification_accepted, ephemeral=True).respond(ctx)
+   guilds = ext.guilds
+   guild.verif_pending = [e for e in guild.verif_pending if e.id != ctx.user.id]
+   guild.verif_admin_pending.append(UserCache(ctx.user.id))
+   guilds.addg(guild)
+   await manualVerificationMessage(ctx.user, guild).send(ctx.guild.get_channel(guild.verif_log_channel))
+   ext.guilds = guilds
+   return 
+  
+ except:
+  pass
+ await Message(InfoMsg.verification_denied, ephemeral=True, delete_after=3.0).respond(ctx)
 @verificationGroup.command(name = "unvrole", description="Sets the unverified role")
 async def unverified_role(ctx, *, role: discord.Role):
- if isVerAuth(ctx):
-  await Message(InfoMsg.set_unverified_role(role.id), delete_after=15.0).respond(ctx)
-  guilds = ext.guilds
-  guild = guilds.getg(ctx.guild.id)
-  guild.verif_role = role.id
-  guilds.addg(guild)
-  ext.guilds = guilds
-  return 
+ try:
+  if isVerAuth(ctx):
+   await Message(InfoMsg.set_unverified_role(role.id), delete_after=15.0).respond(ctx)
+   guilds = ext.guilds
+   guild = guilds.getg(ctx.guild.id)
+   guild.verif_role = role.id
+   guilds.addg(guild)
+   ext.guilds = guilds
+   return 
+  
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
 @verificationGroup.command(name = "timeout", description="Sets the verification timeout")
 async def timeout(ctx, *, amt: float, time_interval: discord.Option(str, choices=['s', 'm', 'h', 'd', 'w'])):
- if isVerAuth(ctx):
-  seconds = float(amt*TimeUnits.unit_map(time_interval))
-  await Message(InfoMsg.set_v_timeout(seconds), delete_after=15.0).respond(ctx)
-  guilds = ext.guilds
-  guild = guilds.getg(ctx.guild.id)
-  guild.verif_timeout = seconds
-  guilds.addg(guild)
-  ext.guilds = guilds
-  return 
+ try:
+  if isVerAuth(ctx):
+   seconds = float(amt*TimeUnits.unit_map(time_interval))
+   await Message(InfoMsg.set_v_timeout(seconds), delete_after=15.0).respond(ctx)
+   guilds = ext.guilds
+   guild = guilds.getg(ctx.guild.id)
+   guild.verif_timeout = seconds
+   guilds.addg(guild)
+   ext.guilds = guilds
+   return 
+  
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
 @verificationGroup.command(name = "mtimeout", description="Sets the manual verification timeout")
 async def admin_timeout(ctx, *, amt: discord.SlashCommandOptionType.number, time_interval: discord.Option(str, choices=['s', 'm', 'h', 'd', 'w'])):
- if isVerAuth(ctx):
-  seconds = float(amt*TimeUnits.unit_map(time_interval))
-  await Message(InfoMsg.set_mv_timeout(seconds), delete_after=15.0).respond(ctx)
-  guilds = ext.guilds
-  guild = guilds.getg(ctx.guild.id)
-  guild.verif_admin_timeout = amt*TimeUnits.unit_map(time_interval)
-  guilds.addg(guild)
-  ext.guilds = guilds
-  return 
+ try:
+  if isVerAuth(ctx):
+   seconds = float(amt*TimeUnits.unit_map(time_interval))
+   await Message(InfoMsg.set_mv_timeout(seconds), delete_after=15.0).respond(ctx)
+   guilds = ext.guilds
+   guild = guilds.getg(ctx.guild.id)
+   guild.verif_admin_timeout = amt*TimeUnits.unit_map(time_interval)
+   guilds.addg(guild)
+   ext.guilds = guilds
+   return 
+  
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
 @verificationGroup.command(name = "msg", description="Sets the verification message")
 async def set_verif_msg(ctx, *, message: str):
- if isVerAuth(ctx):
-  await Message(InfoMsg.set_v_message(jsonPrettify(message)), delete_after=15.0).respond(ctx)
-  guilds = ext.guilds
-  guild = guilds.getg(ctx.guild.id)
-  guild.verif_msg_from_dict(safeload(message))
-  guilds.addg(guild)
-  ext.guilds = guilds
-  return 
+ try:
+  if isVerAuth(ctx):
+   await Message(InfoMsg.set_v_message(jsonPrettify(message)), delete_after=15.0).respond(ctx)
+   guilds = ext.guilds
+   guild = guilds.getg(ctx.guild.id)
+   guild.verif_msg_from_dict(safeload(message))
+   guilds.addg(guild)
+   ext.guilds = guilds
+   return 
+  
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
 @verificationGroup.command(name = "logmsg", description="Sets the verif-log message template (_ _user_ _ - mention, _ _username_ _ - username, _ _id_ _ - id)")
 async def set_verif_log_msg(ctx, *, message: str):
- if isVerAuth(ctx):
-  await Message(InfoMsg.set_vlog_message(jsonPrettify(message)), delete_after=15.0).respond(ctx)
-  guilds = ext.guilds
-  guild = guilds.getg(ctx.guild.id)
-  guild.verif_log_msg_from_dict(safeload(message))
-  guilds.addg(guild)
-  ext.guilds = guilds
-  return 
+ try:
+  if isVerAuth(ctx):
+   await Message(InfoMsg.set_vlog_message(jsonPrettify(message)), delete_after=15.0).respond(ctx)
+   guilds = ext.guilds
+   guild = guilds.getg(ctx.guild.id)
+   guild.verif_log_msg_from_dict(safeload(message))
+   guilds.addg(guild)
+   ext.guilds = guilds
+   return 
+  
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
 @verificationGroup.command(name = "logchannel", description="Sets the verif-log channel")
 async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
- if isVerAuth(ctx):
-  await Message(InfoMsg.set_vlog_channel(channel.id), delete_after=15.0).respond(ctx)
-  guilds = ext.guilds
-  guild = guilds.getg(ctx.guild.id)
-  guild.verif_log_channel = channel.id
-  guilds.addg(guild)
-  ext.guilds = guilds
-  return 
+ try:
+  if isVerAuth(ctx):
+   await Message(InfoMsg.set_vlog_channel(channel.id), delete_after=15.0).respond(ctx)
+   guilds = ext.guilds
+   guild = guilds.getg(ctx.guild.id)
+   guild.verif_log_channel = channel.id
+   guilds.addg(guild)
+   ext.guilds = guilds
+   return 
+  
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
 @verificationGroup.command(name = "get", description="Sends the current verification config")
 async def config_get(ctx):
- if isVerAuth(ctx):
-  guild = ext.guilds.getg(ctx.guild.id)
-  await Message(f'## CONFIG FOR CURRENT GUILD\n\\> Unverified role set to <@&{guild.verif_role}>\n\\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
-  return 
+ try:
+  if isVerAuth(ctx):
+   guild = ext.guilds.getg(ctx.guild.id)
+   await Message(f'## CONFIG FOR CURRENT GUILD\n\\> Unverified role set to <@&{guild.verif_role}>\n\\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
+   return 
+  
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
 class manualVerificationView(discord.ui.View):
  id_get = lambda i: int(re.search(r'((?<=<@)\d*(?=>))', i.message.embeds[~0].footer.text).group(0))
  @discord.ui.button(label="Verify", style=discord.ButtonStyle.success, emoji='\u2714\uFE0F')
@@ -523,23 +513,31 @@ async def force_verification(ctx, user: discord.Member):
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "veriflist", description="Sends a list of all unverified users")
 async def get_veriflist(ctx):
- if isVerAuth(ctx):
-  guild = ext.guilds.getg(ctx.guild.id)
-  if len(guild.verif_pending) > 0:
-   await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_pending])).respond(ctx)
-  else:
+ try:
+  if isVerAuth(ctx):
+   guild = ext.guilds.getg(ctx.guild.id)
+   if len(guild.verif_pending) > 0:
+    await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_pending])).respond(ctx)
+    return 
    await Message('There are no unverified users!').respond(ctx)
+   return 
   
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "mveriflist", description="Sends a list of all manually unverified users")
 async def get_mveriflist(ctx):
- if isVerAuth(ctx):
-  guild = ext.guilds.getg(ctx.guild.id)
-  if len(guild.verif_admin_pending) > 0:
-   await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_admin_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_admin_pending])).respond(ctx)
-  else:
+ try:
+  if isVerAuth(ctx):
+   guild = ext.guilds.getg(ctx.guild.id)
+   if len(guild.verif_admin_pending) > 0:
+    await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_admin_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_admin_pending])).respond(ctx)
+    return 
    await Message('There are no manually unverified users!').respond(ctx)
+   return 
   
+ except:
+  pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
 @bot.listen()
 async def on_guild_join(guild):

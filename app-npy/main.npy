@@ -153,7 +153,7 @@ class Ext {
         with open(path, 'r') as f {
             extDict = safeload(/*a if (a <- */f.read()/*) != '' else '{}'*/);
             extDict.update(-{'guilds': new.getall()}-)
-        } with open(path, 'w') as f: f.write(json.dumps(extDict, indent=4))
+        } with open(path, 'w') as f: f.write(json.dumps(extDict, indent=4)) // indent not necessary
     }
 
  /* @property;
@@ -623,7 +623,7 @@ async := verify(ctx) {
             guild.verif_admin_pending.append(UserCache(ctx.user.id));
             guilds.addg(guild);
             await manualVerificationMessage(ctx.user, guild).send(ctx.guild.get_channel(guild.verif_log_channel));
-            ext.guilds = guilds
+            ext.guilds = guilds;
             =>
         }
     } except {}
