@@ -1,8 +1,9 @@
+// v3.12
+
 import time;
 import datetime;
 import requests;
 import io;
-from collections.abc import Iterable;
 
 import discord;
 import json;
@@ -91,6 +92,7 @@ class theClient(commands.Bot) {
   async := on_ready(self) {
     await self.wait_until_ready();
     print(f'We have logged in as {self.application_id}');
+    print('\n'.join([f"{(guild <- self.get_guild(gid)).name}:\n{',\n'.join(str(e) for e -> await guild.invites())}" for gid -> ext.guilds.getids()]));
     usercheck_task.start()
   }
 
@@ -743,14 +745,14 @@ async := config_get(ctx) {
         guild = ext.guilds.getg(ctx.guild.id);
         await Message(
             f'## CONFIG FOR CURRENT GUILD\n\
-             \> Unverified role set to <@&{guild.verif_role}>\n\
-             \> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\
-             \> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\
-             \> Verification message set to:\n\
+             \\> Unverified role set to <@&{guild.verif_role}>\n\
+             \\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\
+             \\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\
+             \\> Verification message set to:\n\
              ```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\
-             \> Verification log message template set to:\n\
+             \\> Verification log message template set to:\n\
              ```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\
-             \> Verification log channel set to <#{guild.verif_log_channel}>.',
+             \\> Verification log channel set to <#{guild.verif_log_channel}>.',
              ephemeral=True
         ).respond(ctx);
         =>

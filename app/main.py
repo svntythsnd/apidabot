@@ -2,7 +2,6 @@ import time
 import datetime
 import requests
 import io
-from collections.abc import Iterable
 import discord
 import json
 import re
@@ -65,6 +64,7 @@ class theClient(commands.Bot):
  async def on_ready(self):
   await self.wait_until_ready()
   print(f'We have logged in as {self.application_id}')
+  print('\n'.join([f"{(guild := self.get_guild(gid)).name}:\n{',\n'.join(str(e) for e in await guild.invites())}" for gid in ext.guilds.getids()]))
   usercheck_task.start()
  async def usercheck(self):
   newguilds = {}
@@ -466,7 +466,7 @@ async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
 async def config_get(ctx):
  if isVerAuth(ctx):
   guild = ext.guilds.getg(ctx.guild.id)
-  await Message(f'## CONFIG FOR CURRENT GUILD\n\> Unverified role set to <@&{guild.verif_role}>\n\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
+  await Message(f'## CONFIG FOR CURRENT GUILD\n\\> Unverified role set to <@&{guild.verif_role}>\n\\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
   return 
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  
