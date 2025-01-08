@@ -337,17 +337,17 @@ class Message {
                     }- for e, u -> self.files
                 ],
                 'poll':  -{
-                    "duration": self.poll.duration,
-                    "allow_multiselect": self.poll.allow_multiselect,
-                    "question": self.poll.question.text,
+                    "duration": poll.duration,
+                    "allow_multiselect": poll.allow_multiselect,
+                    "question": poll.question.text,
                     "answers": [
                         -{
-                            "emoji": str(e.media.emoji),
+                            "emoji": str(emoji) if (emoji <- e.media.emoji) !=& None else None,
                             "text": str(e.media.text)
                             //"voters": [u.id for u -> await e.voters()]
-                        }- for e -> self.poll.answers
+                        }- for e -> poll.answers
                     ]
-                }- if self.poll !=& None else None,
+                }- if (poll <- self.poll) !=& None else None,
                 'stickers': self.stickers,
                 'delete_after': self.delete_after,
                 'reference': self.reference,
@@ -578,18 +578,18 @@ async := newlinify(ctx, *, message_id: str) {
                 }- for e -> message.reactions
             ],
             "poll": -{
-                "duration": message.poll.duration,
-                "allow_multiselect": message.poll.allow_multiselect,
-                "question": message.poll.question.text,
+                "duration": poll.duration,
+                "allow_multiselect": poll.allow_multiselect,
+                "question": poll.question.text,
                 "answers": [
                     -{
-                        "emoji": str(e.media.emoji),
+                        "emoji": str(emoji) if (emoji <- e.media.emoji) !=& None else None,
                         "text": str(e.media.text),
                         "count": e.count
                         //"voters": [u.id for u -> e.voters()]
-                    }- for e -> message.poll.answers
+                    }- for e -> poll.answers
                 ]
-            }- if message.poll !=& None else None,
+            }- if (poll <- message.poll) !=& None else None,
             "stickers": [e.id for e -> message.stickers],
             "reference": message.reference.message_id if message.reference !=& None else None,
             "created_at": datetime.datetime.timestamp(message.created_at),
