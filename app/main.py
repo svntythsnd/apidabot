@@ -149,9 +149,8 @@ class UserCache:
   created_at = jsonDict.get('created_at')
   return cls(id, created_at)
  def dictify(self) : return {'id': self.id,'created_at':  self.created_at}
- 
 class Message:
- def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, view=None):
+ def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, tts=False, view=None):
   for x in embeds, files, stickers:
    if x is None: x = []
   self.content = content
@@ -164,11 +163,11 @@ class Message:
   self.silent = silent
   self.mention_author = mention_author
   self.ephemeral = ephemeral
+  self.tts = tts
   self.view = view
   
- @property
- def adapted_files(self):
-  if self.files is not None : return [e for e, u in self.files]
+ def adapted_files(self, ctx):
+  if self.files is not None and isFilesAuth(ctx) : return [e for e, u in self.files]
   return None
  @classmethod
  def from_dict(cls, jsonDict):
@@ -186,7 +185,8 @@ class Message:
   silent = getDefault(jsonDict, 'silent', False)
   mention_author = getDefault(jsonDict, 'mention_author', True)
   ephemeral = getDefault(jsonDict, 'ephemeral', False)
-  return cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral)
+  tts = getDefault(jsonDict, 'tts', False)
+  return cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral, tts)
  def set_view(self, view):
   self.view = view
   return self
@@ -194,18 +194,27 @@ class Message:
   embedList = [e.to_dict() for e in self.embeds]
   for e in embedList:
    if (f := e.get("color")) is not None: e.update({"color": hex(f)})
-  dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text)} for e in poll.answers]} if (poll := self.poll) is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
+  dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text)} for e in poll.answers]} if (poll := self.poll) is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral,'tts': self.tts}
   if shorten: dictified = filter_none(dictified)
   return dictified
- async def send(self, ctx):
-  if isAuth(ctx):
-   return_message = await ctx.send(content=self.content,embeds=self.embeds,files=self.adapted_files,delete_after=self.delete_after,reference=(await ctx.channel.fetch_message(ctx.message.id if r <= 0 else r)if (r := self.reference) is not None else None),poll=self.poll,silent=self.silent,mention_author=self.mention_author,stickers=[await bot.fetch_sticker(e) for e in self.stickers])
+ async def send(self, ctx, *, respond=False):
+  if isAuth(ctx) or respond:
+   content = self.content
+   embeds = self.embeds
+   files = self.adapted_files(ctx)
+   delete_after = self.delete_after
+   reference = (await ctx.channel.fetch_message(r)if (r := self.reference) is not None else None)
+   poll = self.poll if isPollsAuth(ctx) else None
+   silent = self.silent
+   mention_author = self.mention_author
+   ephemeral = self.ephemeral
+   tts = self.tts if isTTSAuth(ctx) else False
+   stickers = [await bot.fetch_sticker(e) for e in stickers] if (stickers := self.stickers) is not None else None
+   view = self.view
+   return_message = await ctx.respond(content=content,embeds=embeds,files=files,delete_after=delete_after,poll=poll,ephemeral=ephemeral,tts=tts,view=view) if respond else await ctx.send(content=content,embeds=embeds,files=files,delete_after=delete_after,reference=reference,poll=poll,silent=silent,mention_author=mention_author,tts=tts,stickers=stickers,view=view)
    return return_message
   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- async def respond(self, ctx):
-  return_message = await ctx.respond(content=self.content,embeds=self.embeds,files=self.adapted_files,delete_after=self.delete_after,ephemeral=self.ephemeral,view=self.view)
-  return return_message
- 
+ async def respond(self, ctx) : return await self.send(ctx, respond=True)
 ext = Ext()
 bot = theClient()
 @tasks.loop(seconds=5)
@@ -217,17 +226,22 @@ isVerAuth = lambda ctx:ctx.author.guild_permissions.manage_guild
 isPinAuth = lambda ctx:ctx.author.guild_permissions.manage_messages
 isReactAuth = lambda ctx:ctx.author.guild_permissions.add_reactions
 isInteractionVerAuth = lambda interaction:interaction.user.guild_permissions.manage_guild
+def isTTSAuth(ctx):
+ if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_tts_messages
+ return True
+def isFilesAuth(ctx):
+ if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.attach_files
+ return True
+def isPollsAuth(ctx):
+ if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_polls
+ return True
 messagesGroup = bot.create_group("wh", "Sending webhook-style messages")
 messagesResponseGroup = bot.create_group("r", "Sending response messages")
 utilityGroup = bot.create_group("u", "Various QOL commands")
 async def embed(ctx, message):
- try:
-  await Message.from_dict(safeload(message)).send(ctx)
-  await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx)
-  return 
- except:
-  pass
- await Message('Message failed to send!', ephemeral=True).respond(ctx)
+ await Message.from_dict(safeload(message)).send(ctx)
+ await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx)
+ return 
 async def rembed(ctx, message):
  try:
   message = Message.from_dict(safeload(message))
@@ -325,7 +339,7 @@ def nativeMessageDictify(message, shorten=True):
  embeds = [e.to_dict() for e in message.embeds]
  for e in embeds:
   if (f := e.get("color")) is not None: e.update( {"color": hex(f)} )
- dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"burst": e.me_burst,"count": e.count} for e in message.reactions],"poll": {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text),"count": e.count} for e in poll.answers]} if (poll := message.poll) is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
+ dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"burst": e.me_burst,"count": e.count} for e in message.reactions],"poll": {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text),"count": e.count} for e in poll.answers]} if (poll := message.poll) is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"tts": message.tts,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
  if shorten: dictified = filter_none(dictified)
  return dictified
 @utilityGroup.command(name = "jsonify", description = "Turn a message into json")

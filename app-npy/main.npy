@@ -238,11 +238,11 @@ class UserCache {
     := dictify(self) :=> -{
                 'id': self.id,
                 'created_at':  self.created_at
-            }-;
+            }-
 }
 
 class Message {
-    := __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, view=None) {
+    := __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, tts=False, view=None) {
         for x -> embeds, files, stickers {
             if x =& None: x = []
         }
@@ -256,12 +256,12 @@ class Message {
         self.silent = silent;
         self.mention_author = mention_author;
         self.ephemeral = ephemeral;
+        self.tts = tts;
         self.view = view;
     }
 
-    @property;
-    := adapted_files(self) {
-        if self.files !=& None :=> [e for e, u -> self.files];
+    := adapted_files(self, ctx) {
+        if self.files !=& None && isFilesAuth(ctx) :=> [e for e, u -> self.files];
         => None
     }
 
@@ -311,8 +311,9 @@ class Message {
         silent = getDefault(jsonDict, 'silent', False);
         mention_author = getDefault(jsonDict, 'mention_author', True);
         ephemeral = getDefault(jsonDict, 'ephemeral', False);
+        tts = getDefault(jsonDict, 'tts', False);
 
-        => cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral)
+        => cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral, tts)
     }
 
     := set_view(self, view) {
@@ -353,48 +354,62 @@ class Message {
                 'reference': self.reference,
                 'silent': self.silent,
                 'mention_author': self.mention_author,
-                'ephemeral': self.ephemeral
+                'ephemeral': self.ephemeral,
+                'tts': self.tts
             }-;
         if shorten: dictified = filter_none(dictified);
         => dictified
     }
 
-    async := send(self, ctx) {
-        if isAuth(ctx) {
-            return_message = await ctx.send(
-                content=self.content,
-                embeds=self.embeds,
-                files=self.adapted_files,
-                delete_after=self.delete_after,
-                reference=(
-                    await ctx.channel.fetch_message(
-                        ctx.message.id #
-                        if r <= 0 #
-                        else r
-                    )
-                    if (r <- self.reference) !=& None #
-                    else None
-                ),
-                poll=self.poll,
-                silent=self.silent,
-                mention_author=self.mention_author,
-                stickers=[await bot.fetch_sticker(e) for e -> self.stickers]
+    async := send(self, ctx, *, respond=False) {
+        if isAuth(ctx) || respond {
+            content = self.content;
+            embeds = self.embeds;
+            files = self.adapted_files(ctx);
+            delete_after = self.delete_after;
+            reference = (
+                await ctx.channel.fetch_message(
+                    /* ctx.interaction.id #
+                    if r <= 0 #
+                    else */r
+                )
+                if (r <- self.reference) !=& None #
+                else None
             );
-        => return_message
+            poll = self.poll if isPollsAuth(ctx) else None;
+            silent = self.silent;
+            mention_author = self.mention_author;
+            ephemeral = self.ephemeral;
+            tts = self.tts if isTTSAuth(ctx) else False;
+            stickers = [await bot.fetch_sticker(e) for e -> stickers] if (stickers <- self.stickers) !=& None else None;
+            view = self.view;
+            return_message = await ctx.respond(
+                content=content,
+                embeds=embeds,
+                files=files,
+                delete_after=delete_after,
+                poll=poll,
+                ephemeral=ephemeral,
+                tts=tts,
+                view=view
+            ) if respond else await ctx.send(
+                content=content,
+                embeds=embeds,
+                files=files,
+                delete_after=delete_after,
+                reference=reference,
+                poll=poll,
+                silent=silent,
+                mention_author=mention_author,
+                tts=tts,
+                stickers=stickers,
+                view=view
+            );
+            => return_message
         } await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
     }
 
-    async := respond(self, ctx) {
-        return_message = await ctx.respond(
-            content=self.content,
-            embeds=self.embeds,
-            files=self.adapted_files,
-            delete_after=self.delete_after,
-            ephemeral=self.ephemeral,
-            view=self.view
-        );
-        => return_message
-    }
+    async := respond(self, ctx) :=> await self.send(ctx, respond=True)
 }
 
 ext = Ext();
@@ -422,18 +437,33 @@ isReactAuth = ;=ctx:
 isInteractionVerAuth = ;=interaction:
     interaction.user.guild_permissions.manage_guild;
 
+:= isTTSAuth(ctx) {
+    if isinstance(ctx, commands.Context) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_tts_messages;
+    => True
+}
+
+:= isFilesAuth(ctx) {
+    if isinstance(ctx, commands.Context) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.attach_files;
+    => True
+}
+
+:= isPollsAuth(ctx) {
+    if isinstance(ctx, commands.Context) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_polls;
+    => True
+}
+
 messagesGroup = bot.create_group("wh", "Sending webhook-style messages");
 messagesResponseGroup = bot.create_group("r", "Sending response messages");
 utilityGroup = bot.create_group("u", "Various QOL commands");
 
 
 async := embed(ctx, message) {
-    try {
+    //try {
         await Message.from_dict(safeload(message)).send(ctx);
         await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx);
         =>
-    } except {}
-    await Message('Message failed to send!', ephemeral=True).respond(ctx)
+    //} except {}
+    //await Message('Message failed to send!', ephemeral=True).respond(ctx)
 }
 
 async := rembed(ctx, message) {
@@ -592,6 +622,7 @@ async := newlinify(ctx, *, message_id: str) {
             }- if (poll <- message.poll) !=& None else None,
             "stickers": [e.id for e -> message.stickers],
             "reference": message.reference.message_id if message.reference !=& None else None,
+            "tts": message.tts,
             "created_at": datetime.datetime.timestamp(message.created_at),
             "edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at !=& None else None
         }-;
