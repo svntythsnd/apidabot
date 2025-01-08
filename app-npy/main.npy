@@ -343,8 +343,8 @@ class Message {
                     "answers": [
                         -{
                             "emoji": str(e.media.emoji),
-                            "text": str(e.media.text),
-                            "voters": [u.id for u -> e.voters()]
+                            "text": str(e.media.text)
+                            //"voters": [u.id for u -> await e.voters()]
                         }- for e -> self.poll.answers
                     ]
                 }- if self.poll !=& None else None,
@@ -572,8 +572,9 @@ async := newlinify(ctx, *, message_id: str) {
             "reactions": [
                 -{
                     "emoji": str(e.emoji),
-                    "users": [u.id for u -> e.users()],
-                    "burst": e.me_burst
+                    // "users": [u.id for u -> e.users()],
+                    "burst": e.me_burst,
+                    "count": e.count
                 }- for e -> message.reactions
             ],
             "poll": -{
@@ -584,7 +585,8 @@ async := newlinify(ctx, *, message_id: str) {
                     -{
                         "emoji": str(e.media.emoji),
                         "text": str(e.media.text),
-                        "voters": [u.id for u -> e.voters()]
+                        "count": e.count
+                        //"voters": [u.id for u -> e.voters()]
                     }- for e -> message.poll.answers
                 ]
             }- if message.poll !=& None else None,

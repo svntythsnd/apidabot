@@ -102,7 +102,7 @@ class Ext:
   with open(path, 'r') as f:
    extDict = safeload(f.read())
    extDict.update({'guilds': new.getall()})
-  with open(path, 'w') as f: f.write(json.dumps(extDict, indent=4))
+  with open(path, 'w') as f: f.write(json.dumps(extDict, indent=4)) 
  
 class GuildCache:
  def __init__(self, v: dict): self._v = {i: CachedGuild(i, v[i]) for i in v}
@@ -194,7 +194,7 @@ class Message:
   embedList = [e.to_dict() for e in self.embeds]
   for e in embedList:
    if (f := e.get("color")) is not None: e.update({"color": hex(f)})
-  dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": self.poll.duration,"allow_multiselect": self.poll.allow_multiselect,"question": self.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in self.poll.answers]} if self.poll is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
+  dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": self.poll.duration,"allow_multiselect": self.poll.allow_multiselect,"question": self.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text)} for e in self.poll.answers]} if self.poll is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral}
   if shorten: dictified = filter_none(dictified)
   return dictified
  async def send(self, ctx):
@@ -325,7 +325,7 @@ def nativeMessageDictify(message, shorten=True):
  embeds = [e.to_dict() for e in message.embeds]
  for e in embeds:
   if (f := e.get("color")) is not None: e.update( {"color": hex(f)} )
- dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"users": [u.id for u in e.users()],"burst": e.me_burst} for e in message.reactions],"poll": {"duration": message.poll.duration,"allow_multiselect": message.poll.allow_multiselect,"question": message.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"voters": [u.id for u in e.voters()]} for e in message.poll.answers]} if message.poll is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
+ dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"burst": e.me_burst,"count": e.count} for e in message.reactions],"poll": {"duration": message.poll.duration,"allow_multiselect": message.poll.allow_multiselect,"question": message.poll.question.text,"answers": [{"emoji": str(e.media.emoji),"text": str(e.media.text),"count": e.count} for e in message.poll.answers]} if message.poll is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
  if shorten: dictified = filter_none(dictified)
  return dictified
 @utilityGroup.command(name = "jsonify", description = "Turn a message into json")
