@@ -96,7 +96,7 @@ class theClient(commands.Bot) {
   async := on_ready(self) {
     await self.wait_until_ready();
     print(f'We have logged in as {self.application_id}');
-    print('\n'.join([f"{(guild <- self.get_guild(gid)).name}:\n{',\n'.join(str(e) for e -> await guild.invites())}" for gid -> ext.guilds.getids()]));
+    // print('\n'.join([f"{(guild <- self.get_guild(gid)).name}:\n{',\n'.join(str(e) for e -> await guild.invites())}" for gid -> ext.guilds.getids()]));
     usercheck_task.start()
   }
 
@@ -458,12 +458,12 @@ utilityGroup = bot.create_group("u", "Various QOL commands");
 
 
 async := embed(ctx, message) {
-    //try {
+    try {
         await Message.from_dict(safeload(message)).send(ctx);
         await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx);
         =>
-    //} except {}
-    //await Message('Message failed to send!', ephemeral=True).respond(ctx)
+    } except {}
+    await Message('Message failed to send!', ephemeral=True).respond(ctx)
 }
 
 async := rembed(ctx, message) {
@@ -574,7 +574,8 @@ async := ping(ctx) {
 @utilityGroup.command(name = "newlinify", description = "Turn newlines into \\n");
 async := newlinify(ctx, *, message_id: str) {
     try {
-        if reference_message <- await ctx.fetch_message(message_id) && reference_message.content != '' {
+        reference_message = await ctx.fetch_message(message_id);
+        if reference_message.content != '' {
             await Message(reference_message.content.replace('\\n', '\\\\n').replace('\n','\\n'), ephemeral=True).respond(ctx);
             =>
         }
@@ -899,7 +900,7 @@ async := get_mveriflist(ctx) {
 @bot.listen();
 async := on_guild_join(guild) {
     guilds = ext.guilds;
-    guilds.addg(await CachedGuild(guild.id));
+    guilds.addg(CachedGuild(guild.id));
     ext.guilds = guilds
 }
 
