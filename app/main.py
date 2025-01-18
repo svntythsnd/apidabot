@@ -535,7 +535,7 @@ async def get_veriflist(ctx):
   if isVerAuth(ctx):
    guild = ext.guilds.getg(ctx.guild.id)
    if len(guild.verif_pending) > 0:
-    await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_pending])).respond(ctx)
+    await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_timeout)-(datetime.datetime.fromtimestamp(time.time())-datetime.datetime.fromtimestamp(x.created_at))}".split(".", 2)[0]} left (<t:{int(x.created_at + guild.verif_timeout)}:R>)' for x in guild.verif_pending])).respond(ctx)
     return 
    await Message('There are no unverified users!').respond(ctx)
    return 
@@ -549,7 +549,7 @@ async def get_mveriflist(ctx):
   if isVerAuth(ctx):
    guild = ext.guilds.getg(ctx.guild.id)
    if len(guild.verif_admin_pending) > 0:
-    await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_admin_timeout)-(datetime.datetime.utcfromtimestamp(time.time())-datetime.datetime.utcfromtimestamp(x.created_at))}".split(".", 2)[0]} left' for x in guild.verif_admin_pending])).respond(ctx)
+    await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_admin_timeout)-(datetime.datetime.fromtimestamp(time.time())-datetime.datetime.fromtimestamp(x.created_at))}".split(".", 2)[0]} left (<t:{int(x.created_at + guild.verif_admin_timeout)}:R>)' for x in guild.verif_admin_pending])).respond(ctx)
     return 
    await Message('There are no manually unverified users!').respond(ctx)
    return 
