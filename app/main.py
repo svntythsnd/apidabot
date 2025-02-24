@@ -10,17 +10,19 @@ from os import chdir
 chdir('./app')
 class InfoMsg:
  permission_error = 'Interaction failed - you might not have the required permissions'
+ setup_error = 'This server does not have verification setup.'
  member_presence_error = 'User is not on this server!'
+ member_already_verified_error = 'User is already verified!'
  member_unverifiable_error = 'User is not manually verifiable!'
- force_verification_success = lambda id: f'<@{id}> has been force-verified!'
  verification_success = lambda id: f'<@{id}> has been verified!'
- verification_declined_success = lambda id: f'<@{id}> has been rejected and kicked!'
- verification_declined_audit = 'Verification attempt was declined by staff'
+ verification_decline_success = lambda user: f'<@{user.id}> has been rejected and kicked!'
+ verification_decline_audit = lambda context: f'Verification attempt was declined by admin <@{context.author.id}>'
  verification_period_expiration_audit = 'Verification period expired'
  manual_verification_period_expiration_audit = 'Manual verification period expired'
  verification_denied = 'Your verification request was denied by the system. You may have already submitted your request'
  verification_accepted = 'Your verification request has been submitted!'
- force_verification_success_audit = 'Verification forced'
+ verification_confirm_success = lambda user: f'<@{user.id}> has been verified!'
+ verification_confirm_audit = lambda context: f'User verified by admin <@{context.author.id}>'
  verification_role_on_join_audit = 'Unverified role given to new member'
  set_unverified_role = lambda id: f'Unverified role set to <@&{id}>'
  set_v_timeout = lambda seconds: f'Verification timeout interval set to {datetime.timedelta(seconds=seconds)}'
@@ -67,22 +69,26 @@ class theClient(commands.Bot):
    guild = ext.guilds.getg(gid)
    rguild = self.get_guild(gid)
    new_verif_pending = []
-   for user in guild.verif_pending:
-    if ruser := rguild.get_member(user.id):
-     if time.time() - user.created_at < guild.verif_timeout:
-      new_verif_pending.append(user)
-     else:
-      await rguild.kick(ruser, reason=InfoMsg.verification_period_expiration_audit)
+   if verifcheck(rguild):
+    for user in guild.verif_pending:
+     if ruser := rguild.get_member(user.id):
+      if time.time() - user.created_at < guild.verif_timeout:
+       new_verif_pending.append(user)
+      else:
+       await rguild.kick(ruser, reason=InfoMsg.verification_period_expiration_audit)
+      
      
     
    guild.verif_pending = new_verif_pending
    new_verif_admin_pending = []
-   for user in guild.verif_admin_pending:
-    if ruser := rguild.get_member(user.id):
-     if time.time() - user.created_at < guild.verif_admin_timeout:
-      new_verif_admin_pending.append(user)
-     else:
-      await rguild.kick(ruser, reason=InfoMsg.manual_verification_period_expiration_audit)
+   if verifcheck(rguild):
+    for user in guild.verif_admin_pending:
+     if ruser := rguild.get_member(user.id):
+      if time.time() - user.created_at < guild.verif_admin_timeout:
+       new_verif_admin_pending.append(user)
+      else:
+       await rguild.kick(ruser, reason=InfoMsg.manual_verification_period_expiration_audit)
+      
      
     
    guild.verif_admin_pending = new_verif_admin_pending
@@ -356,11 +362,13 @@ async def jsonify(ctx, *, message_id: str):
  except discord.HTTPException:
   pass
  await Message('Jsonification failed!', ephemeral=True).respond(ctx)
+def verifcheck(rguild) : return ((guild := ext.guilds.getg(rguild.id)).verif_admin_timeout is not None) and (guild.verif_timeout is not None) and (guild.verif_role is not None) and (guild.verif_log_channel is not None)
 verificationGroup = bot.create_group("v", "Various verification-related commands")
 verificationGroup.contexts = [discord.InteractionContextType.guild]
 @verificationGroup.command(name = "verify", description="Verifies you if you are unverified")
 async def verify(ctx):
  try:
+  assert verifcheck(ctx.guild)
   guild = ext.guilds.getg(ctx.guild.id)
   if any(e.id == ctx.author.id for e in guild.verif_pending) and not any(e.id == ctx.author.id for e in guild.verif_admin_pending):
    await Message(InfoMsg.verification_accepted, ephemeral=True).respond(ctx)
@@ -372,9 +380,11 @@ async def verify(ctx):
    ext.guilds = guilds
    return 
   
+ except AssertionError:
+  await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
  except:
-  pass
- await Message(InfoMsg.verification_denied, ephemeral=True, delete_after=3.0).respond(ctx)
+  await Message(InfoMsg.verification_denied, ephemeral=True, delete_after=3.0).respond(ctx)
+ 
 @verificationGroup.command(name = "unvrole", description="Sets the unverified role")
 async def unverified_role(ctx, *, role: discord.Role):
  try:
@@ -514,24 +524,54 @@ async def send_verification(ctx):
   await ext.guilds.getg(ctx.guild.id).verif_msg.respond(ctx)
   return 
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
-async def force_verification(ctx, user: discord.Member):
- if isVerAuth(ctx):
-  guilds = ext.guilds
-  try: guild_cache = guilds.getg(ctx.guild.id)
-  except AttributeError:
-   await Message(InfoMsg.member_presence_error, ephemeral=True).respond(ctx)
+@verificationGroup.command(name = "confirm", description="Verifies a user")
+async def confirm(ctx, user: discord.Member):
+ try:
+  assert verifcheck(ctx.guild)
+  if isVerAuth(ctx):
+   guilds = ext.guilds
+   try: guild_cache = guilds.getg(ctx.guild.id)
+   except AttributeError:
+    await Message(InfoMsg.member_presence_error, ephemeral=True).respond(ctx)
+    return 
+   if not ((user.id in [e.id for e in guild_cache.verif_pending]) or (user.id in [e.id for e in guild_cache.verif_admin_pending])):
+    await Message(InfoMsg.member_already_verified_error, ephemeral=True).respond(ctx)
+    return 
+   guild_cache.verif_admin_pending = [e for e in guild_cache.verif_admin_pending if e.id != user.id]
+   guild_cache.verif_pending = [e for e in guild_cache.verif_pending if e.id != user.id]
+   await user.remove_roles(ctx.guild.get_role(guild_cache.verif_role), reason=InfoMsg.verification_confirm_audit(ctx))
+   guilds.addg(guild_cache)
+   ext.guilds = guilds
+   await Message(InfoMsg.verification_confirm_success(user)).respond(ctx)
    return 
-  guild_cache.verif_admin_pending = [e for e in guild_cache.verif_admin_pending if e.id != user.id]
-  guild_cache.verif_pending = [e for e in guild_cache.verif_pending if e.id != user.id]
-  await user.remove_roles(ctx.guild.get_role(guild_cache.verif_role), reason=InfoMsg.force_verification_success_audit)
-  guilds.addg(guild_cache)
-  ext.guilds = guilds
-  await Message(InfoMsg.force_verification_success(user.id)).respond(ctx)
-  return 
- await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+ except AssertionError: await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
+@verificationGroup.command(name = "decline", description="Kicks an unverified user")
+async def decline(ctx, user: discord.Member):
+ try:
+  assert verifcheck(ctx.guild)
+  if isVerAuth(ctx):
+   guilds = ext.guilds
+   try: guild_cache = guilds.getg(ctx.guild.id)
+   except AttributeError:
+    await Message(InfoMsg.member_presence_error, ephemeral=True).respond(ctx)
+    return 
+   if not ((user.id in [e.id for e in guild_cache.verif_pending]) or (user.id in [e.id for e in guild_cache.verif_admin_pending])):
+    await Message(InfoMsg.member_already_verified_error, ephemeral=True).respond(ctx)
+    return 
+   guild_cache.verif_admin_pending = [e for e in guild_cache.verif_admin_pending if e.id != user.id]
+   guild_cache.verif_pending = [e for e in guild_cache.verif_pending if e.id != user.id]
+   await ctx.guild.kick(user, reason=InfoMsg.verification_decline_audit(ctx))
+   guilds.addg(guild_cache)
+   ext.guilds = guilds
+   await Message(InfoMsg.verification_decline_success(user)).respond(ctx)
+   return 
+  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+ except AssertionError: await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "veriflist", description="Sends a list of all unverified users")
 async def get_veriflist(ctx):
  try:
+  assert verifcheck(ctx.guild)
   if isVerAuth(ctx):
    guild = ext.guilds.getg(ctx.guild.id)
    if len(guild.verif_pending) > 0:
@@ -540,12 +580,15 @@ async def get_veriflist(ctx):
    await Message('There are no unverified users!').respond(ctx)
    return 
   
+ except AssertionError:
+  await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
  except:
-  pass
- await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+ 
 @verificationGroup.command(name = "mveriflist", description="Sends a list of all manually unverified users")
 async def get_mveriflist(ctx):
  try:
+  assert verifcheck(ctx.guild)
   if isVerAuth(ctx):
    guild = ext.guilds.getg(ctx.guild.id)
    if len(guild.verif_admin_pending) > 0:
@@ -554,9 +597,11 @@ async def get_mveriflist(ctx):
    await Message('There are no manually unverified users!').respond(ctx)
    return 
   
+ except AssertionError:
+  await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
  except:
-  pass
- await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+ 
 @bot.listen()
 async def on_guild_join(guild):
  guilds = ext.guilds
@@ -569,13 +614,15 @@ async def on_guild_remove(guild):
  ext.guilds = guilds
 @bot.listen()
 async def on_member_join(member):
- guilds = ext.guilds
- guild_cache = guilds.getg((guild := member.guild).id)
- if not any(e.id == member.id for e in guild_cache.verif_pending):
-  guild_cache.verif_pending.append(UserCache(member.id))
-  guilds.addg(guild_cache)
-  ext.guilds = guilds
- await member.add_roles(guild.get_role(ext.guilds.getg(guild.id).verif_role), reason=InfoMsg.verification_role_on_join_audit)
+ if verifcheck(member.guild):
+  guilds = ext.guilds
+  guild_cache = guilds.getg((guild := member.guild).id)
+  if not any(e.id == member.id for e in guild_cache.verif_pending):
+   guild_cache.verif_pending.append(UserCache(member.id))
+   guilds.addg(guild_cache)
+   ext.guilds = guilds
+  await member.add_roles(guild.get_role(ext.guilds.getg(guild.id).verif_role), reason=InfoMsg.verification_role_on_join_audit)
+ 
 @bot.listen()
 async def on_member_update(before, user):
  guilds = ext.guilds
