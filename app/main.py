@@ -7,6 +7,7 @@ import json
 import re
 from discord.ext import commands, tasks
 from os import chdir
+from discord import utils
 chdir('./app')
 class InfoMsg:
  permission_error = 'Interaction failed - you might not have the required permissions'
@@ -22,6 +23,7 @@ class InfoMsg:
  verification_denied = 'Your verification request was denied by the system. You may have already submitted your request'
  verification_accepted = 'Your verification request has been submitted!'
  verification_confirm_success = lambda user: f'<@{user.id}> has been verified!'
+ verification_personal_success = lambda guild: f'You have been verified in **{utils.escape_markdown(guild.name)}**!'
  verification_confirm_audit = lambda context: f'User verified by admin <@{context.author.id}>'
  verification_role_on_join_audit = 'Unverified role given to new member'
  set_unverified_role = lambda id: f'Unverified role set to <@&{id}>'
@@ -447,7 +449,7 @@ async def set_verif_msg(ctx, *, message: str):
  except:
   pass
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
-@verificationGroup.command(name = "logmsg", description="Sets the verif-log message template (_ _user_ _ - mention, _ _username_ _ - username, _ _id_ _ - id)")
+@verificationGroup.command(name = "logmsg", description="Sets the verif-log message (_ _name_ _ - username, _ _ename_ _ - escaped username, _ _id_ _ - id)")
 async def set_verif_log_msg(ctx, *, message: str):
  try:
   if isVerAuth(ctx):
@@ -512,7 +514,7 @@ class manualVerificationView(discord.ui.View):
  
 username_display = lambda user: f'{user.name}{f"#{user.discriminator}" if user.discriminator != "0" else ""}'
 def manualVerificationMessage(user, guild_cache):
- msg = json.dumps(guild_cache.verif_log_msg.dictify()).replace('_ _user_ _', f'<@{user.id}>').replace('_ _username_ _', username_display(user)).replace('_ _id_ _', str(user.id))
+ msg = json.dumps(guild_cache.verif_log_msg.dictify()).replace('_ _ename_ _', utils.escape_markdown(username_display(user))).replace('_ _username_ _', username_display(user)).replace('_ _id_ _', str(user.id))
  msg = safeload(msg)
  embeds = getDefault(msg, 'embeds', [])
  embeds.append({'footer': { 'text': f'>> <@{user.id}> | {username_display(user)}', 'icon_url': user.avatar.url } })
@@ -543,6 +545,7 @@ async def confirm(ctx, user: discord.Member):
    guilds.addg(guild_cache)
    ext.guilds = guilds
    await Message(InfoMsg.verification_confirm_success(user)).respond(ctx)
+   await (Message(InfoMsg.verification_personal_success(ctx.guild))).send(u if (u:=user.dm_channel) is not None else await user.create_dm())
    return 
   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  except AssertionError: await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
