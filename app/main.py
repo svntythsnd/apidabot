@@ -384,9 +384,10 @@ async def verify(ctx):
   
  except AssertionError:
   await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
+  return 
  except:
-  await Message(InfoMsg.verification_denied, ephemeral=True, delete_after=3.0).respond(ctx)
- 
+  pass
+ await Message(InfoMsg.verification_denied, ephemeral=True, delete_after=3.0).respond(ctx)
 @verificationGroup.command(name = "unvrole", description="Sets the unverified role")
 async def unverified_role(ctx, *, role: discord.Role):
  try:
@@ -582,12 +583,8 @@ async def get_veriflist(ctx):
     return 
    await Message('There are no unverified users!').respond(ctx)
    return 
-  
- except AssertionError:
-  await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
- except:
   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
+ except AssertionError: await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "mveriflist", description="Sends a list of all manually unverified users")
 async def get_mveriflist(ctx):
  try:
@@ -599,12 +596,8 @@ async def get_mveriflist(ctx):
     return 
    await Message('There are no manually unverified users!').respond(ctx)
    return 
-  
- except AssertionError:
-  await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
- except:
   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- 
+ except AssertionError: await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
 @bot.listen()
 async def on_guild_join(guild):
  guilds = ext.guilds
