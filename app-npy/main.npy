@@ -4,10 +4,12 @@ import time;
 import datetime;
 import requests;
 import io;
+from enum import Enum;
 
 import discord;
 import json;
 import re;
+import contextlib;
 
 from discord.ext import commands, tasks;
 from os import chdir;
@@ -18,7 +20,9 @@ chdir('./app');
 
 class InfoMsg {
     permission_error = 'Interaction failed - you might not have the required permissions';
-    setup_error = 'This server does not have verification setup.';
+    setup_error = 'This server does not have verification set up';
+    address_error = ;=a: f'Invalid adress(es): **{",".join(a)}**';
+    message_error = 'Message failed to send!';
     member_presence_error = 'User is not on this server!';
     member_already_verified_error = 'User is already verified!';
     member_unverifiable_error = 'User is not manually verifiable!';
@@ -31,6 +35,7 @@ class InfoMsg {
     verification_accepted = 'Your verification request has been submitted!';
     verification_confirm_success = ;=user: f'<@{user.id}> has been verified!';
     verification_personal_success = ;=guild: f'You have been verified in **{utils.escape_markdown(guild.name)}**!';
+    personal_message = ;=guild: f'You have been sent a message from **{utils.escape_markdown(guild.name)}**:\n\n';
     verification_confirm_audit =;=context: f'User verified by admin <@{context.author.id}>';
     verification_role_on_join_audit = 'Unverified role given to new member';
     set_unverified_role = ;=id: f'Unverified role set to <@&{id}>';
@@ -250,11 +255,13 @@ class UserCache {
             }-
 }
 
+class MessageTypes(Enum) {
+    SEND = 0;
+    RESPOND = 1
+}
+
 class Message {
-    := __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, tts=False, view=None) {
-        for x -> embeds, files, stickers {
-            if x =& None: x = []
-        }
+    := __init__(self, content='', embeds=[], files=[], delete_after=None, reference=None, poll=None, stickers=[], silent=False, mention_author=True, ephemeral=False, tts=False, address=None, view=None) {
         self.content = content;
         self.embeds = embeds;
         self.files = files;
@@ -266,6 +273,7 @@ class Message {
         self.mention_author = mention_author;
         self.ephemeral = ephemeral;
         self.tts = tts;
+        self.address = address;
         self.view = view;
     }
 
@@ -321,8 +329,9 @@ class Message {
         mention_author = getDefault(jsonDict, 'mention_author', True);
         ephemeral = getDefault(jsonDict, 'ephemeral', False);
         tts = getDefault(jsonDict, 'tts', False);
+        address = jsonDict.get('address');
 
-        => cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral, tts)
+        => cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral, tts, address)
     }
 
     := set_view(self, view) {
@@ -364,14 +373,16 @@ class Message {
                 'silent': self.silent,
                 'mention_author': self.mention_author,
                 'ephemeral': self.ephemeral,
-                'tts': self.tts
+                'tts': self.tts,
+                'address': self.address
             }-;
         if shorten: dictified = filter_none(dictified);
         => dictified
     }
 
-    async := send(self, ctx, *, respond=False) {
-        if isAuth(ctx) || respond {
+    async := send(self, ctx, *, type=MessageTypes.SEND) {
+        try {
+        if isAuth(ctx) || (type != MessageTypes.SEND) {
             content = self.content;
             embeds = self.embeds;
             files = self.adapted_files(ctx);
@@ -391,34 +402,91 @@ class Message {
             ephemeral = self.ephemeral;
             tts = self.tts if isTTSAuth(ctx) else False;
             stickers = [await bot.fetch_sticker(e) for e -> stickers] if (stickers <- self.stickers) !=& None else None;
+            address = self.address;
             view = self.view;
-            return_message = await ctx.respond(
-                content=content,
-                embeds=embeds,
-                files=files,
-                delete_after=delete_after,
-                poll=poll,
-                ephemeral=ephemeral,
-                tts=tts,
-                view=view
-            ) if respond else await ctx.send(
-                content=content,
-                embeds=embeds,
-                files=files,
-                delete_after=delete_after,
-                reference=reference,
-                poll=poll,
-                silent=silent,
-                mention_author=mention_author,
-                tts=tts,
-                stickers=stickers,
-                view=view
-            );
-            => return_message
-        } await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+            with contextlib.suppress(AttributeError) {
+                return_messages = [];
+                match type {
+                    ? MessageTypes.RESPOND {
+                        if ctx.interaction.response.is_done() {
+                            return_messages = [await ctx.interaction.edit_original_response(
+                                content=content,
+                                embeds=embeds,
+                                files=files,
+                                delete_after=delete_after,
+                                view=view
+                            )];
+                        } else {
+                                return_messages = [(await ctx.interaction.respond(
+                                content=content,
+                                embeds=embeds,
+                                files=files,
+                                delete_after=delete_after,
+                                ephemeral=ephemeral,
+                                tts=tts,
+                                view=view
+                            ))]
+                        }
+                    } ? _ {
+                        newctx = [];
+                        if !isinstance(address, list): address = [address];
+                        address = set(address);
+                        fails = [];
+                        for a -> address {
+                            try {
+                                await Message(f'Sending... {a}', ephemeral=True).respond(ctx);
+                                ncontent = content;
+                                if a !=& None {
+                                    na = abs(a);
+                                    personal = True;
+                                    guild = ctx.channel.guild;
+                                    if a < 0 {
+                                        match na {
+                                            ? 0: newctx = guild.members;
+                                            ? 1: newctx = [m for m -> guild.members if m.status != discord.Status.offline];
+                                            ? _ {
+                                                try: newctx = guild.get_role(na).members;
+                                                except { newctx = [guild.get_channel_or_thread(na)]; personal = False }
+                                            }
+                                        }
+                                    }
+                                    else: newctx = [guild.get_member(na)];
+                                    if personal {
+                                        newctx = [(u if (u<-(user).dm_channel) !=& None else await user.create_dm()) for user -> newctx];
+                                        ncontent = InfoMsg.personal_message(guild) + content
+                                    }
+                                } else: newctx = [ctx];
+                                return_messages += [await n.send(
+                                    content=ncontent,
+                                    embeds=embeds,
+                                    files=files,
+                                    delete_after=delete_after,
+                                    reference=reference,
+                                    poll=poll,
+                                    silent=silent,
+                                    mention_author=mention_author,
+                                    tts=tts,
+                                    stickers=stickers,
+                                    view=view
+                                ) for n -> set(newctx)];
+                            } except AttributeError {
+                                fails.append(str(a));
+                                continue
+                            }
+                        }
+                        if fails {
+                            await Message(InfoMsg.address_error(fails), ephemeral=True).respond(ctx);
+                            =>
+                        }
+                    }
+                }
+            }
+            => return_messages
+        } await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx); =>
+        } except { await Message(InfoMsg.message_error, ephemeral=True).respond(ctx); => }
     }
 
-    async := respond(self, ctx) :=> await self.send(ctx, respond=True)
+    async := respond(self, ctx) :=> await self.send(ctx, type=MessageTypes.RESPOND)
 }
 
 ext = Ext();
@@ -430,7 +498,7 @@ async := usercheck_task():
     await bot.usercheck();
 
 := isAuth(ctx) {
-    if isinstance(ctx, commands.Context) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.manage_webhooks;
+    if isinstance(ctx, discord.ApplicationContext) :=> (!isinstance(ctx.channel, discord.abc.GuildChannel)) || ctx.author.guild_permissions.manage_webhooks;
     => True
 }
 
@@ -447,17 +515,17 @@ isInteractionVerAuth = ;=interaction:
     interaction.user.guild_permissions.manage_guild;
 
 := isTTSAuth(ctx) {
-    if isinstance(ctx, commands.Context) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_tts_messages;
+    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_tts_messages;
     => True
 }
 
 := isFilesAuth(ctx) {
-    if isinstance(ctx, commands.Context) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.attach_files;
+    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.attach_files;
     => True
 }
 
 := isPollsAuth(ctx) {
-    if isinstance(ctx, commands.Context) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_polls;
+    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_polls;
     => True
 }
 
@@ -467,18 +535,19 @@ utilityGroup = bot.create_group("u", "Various QOL commands");
 
 
 async := embed(ctx, message) {
-    try {
-        await Message.from_dict(safeload(message)).send(ctx);
-        await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx);
-        =>
-    } except {}
-    await Message('Message failed to send!', ephemeral=True).respond(ctx)
+    //try {
+        //await Message('Sending...', ephemeral=True).respond(ctx);
+        await Message('Sending...', ephemeral=True).respond(ctx);
+        //await ctx.interaction.followup.send('3');
+        if await Message.from_dict(safeload(message)).send(ctx): await Message('Message sent!', delete_after=5.0).respond(ctx);
+        //=>
+    //} except {}
+    //await Message('Message failed to send!', ephemeral=True).respond(ctx)
 }
 
 async := rembed(ctx, message) {
     try {
         message = Message.from_dict(safeload(message));
-        message.poll = None;
         await message.respond(ctx);
         =>
     } except {}
@@ -495,8 +564,8 @@ async := embedf(ctx, *, json_file: discord.Attachment):
 
 @messagesGroup.command(name = "say", description = "Say something");
 async := say(ctx, *, message: str) {
-    message = message.replace('\\\\n', '\\n').replace('\\n', '\n');
-    await embed(ctx, f'{{"content":"{message}"}}')
+    // message = message.replace('\\\\', '\\').replace('\\n', '\n');
+    await embed(ctx, f'{{"content":"{message.replace('"', '\\"')}"}}')
 }
 
 @messagesGroup.command(name = "closepoll", description = "Close a poll");
@@ -555,18 +624,18 @@ async := rembedf(ctx, *, json_file: discord.Attachment):
 
 @messagesResponseGroup.command(name = "say", description = "Respond by saying something");
 async := rsay(ctx, *, message: str):
-    await Message(message.replace('\\\\n', '\\n').replace('\\n', '\n')).respond(ctx);
+    await Message(message/*.replace('\\\\n', '\\n').replace('\\n', '\n')*/).respond(ctx);
 
 @messagesResponseGroup.command(name = "delete", description = "Deletes a message");
 async := delete(ctx, *, message_id: str) {
     try {
         reference_message = await ctx.fetch_message(message_id);
-        if isAuth(ctx) || reference_message.interaction.user.id == ctx.author.id {
+        if (isAuth(ctx) && reference_message.author.id == bot.user.id) || reference_message.interaction_metadata.user.id == ctx.author.id {
             await reference_message.delete();
             await Message('Message deleted successfully!', ephemeral=True).respond(ctx);
             =>
         }
-    } except discord.HTTPException {}
+    } except {}
     await Message('Message delete failed!', ephemeral=True).respond(ctx)
 }
 
@@ -588,7 +657,7 @@ async := newlinify(ctx, *, message_id: str) {
             await Message(reference_message.content.replace('\\n', '\\\\n').replace('\n','\\n'), ephemeral=True).respond(ctx);
             =>
         }
-    } except discord.HTTPException {}
+    } except {}
     await Message('Newlinification failed!', ephemeral=True).respond(ctx)
 }
 
@@ -633,6 +702,7 @@ async := newlinify(ctx, *, message_id: str) {
             "stickers": [e.id for e -> message.stickers],
             "reference": message.reference.message_id if message.reference !=& None else None,
             "tts": message.tts,
+            "address": -c.id if isinstance(c <- message.channel, discord.abc.GuildChannel) else c.id,
             "created_at": datetime.datetime.timestamp(message.created_at),
             "edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at !=& None else None
         }-;
@@ -663,15 +733,15 @@ verificationGroup.contexts = [discord.InteractionContextType.guild];
 @verificationGroup.command(name = "verify", description="Verifies you if you are unverified");
 async := verify(ctx) {
     try {
-        assert verifcheck(ctx.guild);
-        guild = ext.guilds.getg(ctx.guild.id);
+        assert verifcheck(ctx.channel.guild);
+        guild = ext.guilds.getg(ctx.channel.guild.id);
         if any(e.id == ctx.author.id for e -> guild.verif_pending) && !any(e.id == ctx.author.id for e -> guild.verif_admin_pending) {
             await Message(InfoMsg.verification_accepted, ephemeral=True).respond(ctx);
             guilds = ext.guilds;
             guild.verif_pending = [e for e -> guild.verif_pending if e.id != ctx.user.id];
             guild.verif_admin_pending.append(UserCache(ctx.user.id));
             guilds.addg(guild);
-            await manualVerificationMessage(ctx.user, guild).send(ctx.guild.get_channel(guild.verif_log_channel));
+            await manualVerificationMessage(ctx.user, guild).send(ctx.channel.guild.get_channel(guild.verif_log_channel));
             ext.guilds = guilds;
             =>
         }
@@ -687,7 +757,7 @@ async := unverified_role(ctx, *, role: discord.Role) {
         if isVerAuth(ctx) {
             await Message(InfoMsg.set_unverified_role(role.id), delete_after=15.0).respond(ctx);
             guilds = ext.guilds;
-            guild = guilds.getg(ctx.guild.id);
+            guild = guilds.getg(ctx.channel.guild.id);
             guild.verif_role = role.id;
             guilds.addg(guild);
             ext.guilds = guilds;
@@ -704,7 +774,7 @@ async := timeout(ctx, *, amt: float, time_interval: discord.Option(str, choices=
             seconds = float(amt*TimeUnits.unit_map(time_interval));
             await Message(InfoMsg.set_v_timeout(seconds), delete_after=15.0).respond(ctx);
             guilds = ext.guilds;
-            guild = guilds.getg(ctx.guild.id);
+            guild = guilds.getg(ctx.channel.guild.id);
             guild.verif_timeout = seconds;
             guilds.addg(guild);
             ext.guilds = guilds;
@@ -721,7 +791,7 @@ async := admin_timeout(ctx, *, amt: discord.SlashCommandOptionType.number, time_
             seconds = float(amt*TimeUnits.unit_map(time_interval));
             await Message(InfoMsg.set_mv_timeout(seconds), delete_after=15.0).respond(ctx);
             guilds = ext.guilds;
-            guild = guilds.getg(ctx.guild.id);
+            guild = guilds.getg(ctx.channel.guild.id);
             guild.verif_admin_timeout = amt*TimeUnits.unit_map(time_interval);
             guilds.addg(guild);
             ext.guilds = guilds;
@@ -737,7 +807,7 @@ async := set_verif_msg(ctx, *, message: str) {
         if isVerAuth(ctx) {
             await Message(InfoMsg.set_v_message(jsonPrettify(message)), delete_after=15.0).respond(ctx);
             guilds = ext.guilds;
-            guild = guilds.getg(ctx.guild.id);
+            guild = guilds.getg(ctx.channel.guild.id);
             guild.verif_msg_from_dict(safeload(message));
             guilds.addg(guild);
             ext.guilds = guilds;
@@ -753,7 +823,7 @@ async := set_verif_log_msg(ctx, *, message: str) {
         if isVerAuth(ctx) {
             await Message(InfoMsg.set_vlog_message(jsonPrettify(message)), delete_after=15.0).respond(ctx);
             guilds = ext.guilds;
-            guild = guilds.getg(ctx.guild.id);
+            guild = guilds.getg(ctx.channel.guild.id);
             guild.verif_log_msg_from_dict(safeload(message));
             guilds.addg(guild);
             ext.guilds = guilds;
@@ -769,7 +839,7 @@ async := set_verif_log_channel(ctx, *, channel: discord.TextChannel) {
         if isVerAuth(ctx) {
             await Message(InfoMsg.set_vlog_channel(channel.id), delete_after=15.0).respond(ctx);
             guilds = ext.guilds;
-            guild = guilds.getg(ctx.guild.id);
+            guild = guilds.getg(ctx.channel.guild.id);
             guild.verif_log_channel = channel.id;
             guilds.addg(guild);
             ext.guilds = guilds;
@@ -783,7 +853,7 @@ async := set_verif_log_channel(ctx, *, channel: discord.TextChannel) {
 async := config_get(ctx) {
     try {
         if isVerAuth(ctx) {
-            guild = ext.guilds.getg(ctx.guild.id);
+            guild = ext.guilds.getg(ctx.channel.guild.id);
             await Message(
                 f'## CONFIG FOR CURRENT GUILD\n\
                  \\> Unverified role set to <@&{guild.verif_role}>\n\
@@ -858,7 +928,7 @@ username_display =;= user: f'{user.name}{f"#{user.discriminator}" if user.discri
 @verificationGroup.command(name = "sendverif", description="Sends the predefined verification message");
 async := send_verification(ctx) {
     if isVerAuth(ctx) {
-        await ext.guilds.getg(ctx.guild.id).verif_msg.respond(ctx);
+        await ext.guilds.getg(ctx.channel.guild.id).verif_msg.respond(ctx);
         =>
     } await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
 }
@@ -885,10 +955,10 @@ async := send_verification(ctx) {
 @verificationGroup.command(name = "confirm", description="Verifies a user");
 async := confirm(ctx, user: discord.Member) {
     try {
-        assert verifcheck(ctx.guild);
+        assert verifcheck(ctx.channel.guild);
         if isVerAuth(ctx) {
             guilds = ext.guilds;
-            try: guild_cache = guilds.getg(ctx.guild.id);
+            try: guild_cache = guilds.getg(ctx.channel.guild.id);
             except AttributeError {
               await Message(InfoMsg.member_presence_error, ephemeral=True).respond(ctx);
               =>
@@ -899,12 +969,12 @@ async := confirm(ctx, user: discord.Member) {
             }
             guild_cache.verif_admin_pending = [e for e -> guild_cache.verif_admin_pending if e.id != user.id];
             guild_cache.verif_pending = [e for e -> guild_cache.verif_pending if e.id != user.id];
-            await user.remove_roles(ctx.guild.get_role(guild_cache.verif_role), reason=InfoMsg.verification_confirm_audit(ctx));
+            await user.remove_roles(ctx.channel.guild.get_role(guild_cache.verif_role), reason=InfoMsg.verification_confirm_audit(ctx));
             guilds.addg(guild_cache);
             ext.guilds = guilds;
             await Message(InfoMsg.verification_confirm_success(user)).respond(ctx);
 
-            await (Message(InfoMsg.verification_personal_success(ctx.guild))).send(u if (u<-user.dm_channel) !=& None else await user.create_dm());
+            await (Message(InfoMsg.verification_personal_success(ctx.channel.guild))).send(u if (u<-user.dm_channel) !=& None else await user.create_dm());
             =>
         } await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
     } except AssertionError: await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
@@ -913,10 +983,10 @@ async := confirm(ctx, user: discord.Member) {
 @verificationGroup.command(name = "decline", description="Kicks an unverified user");
 async := decline(ctx, user: discord.Member) {
     try {
-        assert verifcheck(ctx.guild);
+        assert verifcheck(ctx.channel.guild);
         if isVerAuth(ctx) {
             guilds = ext.guilds;
-            try: guild_cache = guilds.getg(ctx.guild.id);
+            try: guild_cache = guilds.getg(ctx.channel.guild.id);
             except AttributeError {
               await Message(InfoMsg.member_presence_error, ephemeral=True).respond(ctx);
               =>
@@ -928,7 +998,7 @@ async := decline(ctx, user: discord.Member) {
             guild_cache.verif_admin_pending = [e for e -> guild_cache.verif_admin_pending if e.id != user.id];
             guild_cache.verif_pending = [e for e -> guild_cache.verif_pending if e.id != user.id];
 
-            await ctx.guild.kick(user, reason=InfoMsg.verification_decline_audit(ctx));
+            await ctx.channel.guild.kick(user, reason=InfoMsg.verification_decline_audit(ctx));
             guilds.addg(guild_cache);
             ext.guilds = guilds;
             await Message(InfoMsg.verification_decline_success(user)).respond(ctx);
@@ -940,9 +1010,9 @@ async := decline(ctx, user: discord.Member) {
 @verificationGroup.command(name = "veriflist", description="Sends a list of all unverified users");
 async := get_veriflist(ctx) {
     try {
-        assert verifcheck(ctx.guild);
+        assert verifcheck(ctx.channel.guild);
         if isVerAuth(ctx) {
-            guild = ext.guilds.getg(ctx.guild.id);
+            guild = ext.guilds.getg(ctx.channel.guild.id);
             if len(guild.verif_pending) > 0 {
                 await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_timeout)-(datetime.datetime.fromtimestamp(time.time())-datetime.datetime.fromtimestamp(x.created_at))}".split(".", 2)[0]} left (<t:{int(x.created_at + guild.verif_timeout)}:R>)' for x -> guild.verif_pending])).respond(ctx);
                 =>
@@ -956,9 +1026,9 @@ async := get_veriflist(ctx) {
 @verificationGroup.command(name = "mveriflist", description="Sends a list of all manually unverified users");
 async := get_mveriflist(ctx) {
     try {
-        assert verifcheck(ctx.guild);
+        assert verifcheck(ctx.channel.guild);
         if isVerAuth(ctx) {
-            guild = ext.guilds.getg(ctx.guild.id);
+            guild = ext.guilds.getg(ctx.channel.guild.id);
             if len(guild.verif_admin_pending) > 0 {
                 await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_admin_timeout)-(datetime.datetime.fromtimestamp(time.time())-datetime.datetime.fromtimestamp(x.created_at))}".split(".", 2)[0]} left (<t:{int(x.created_at + guild.verif_admin_timeout)}:R>)' for x -> guild.verif_admin_pending])).respond(ctx);
                 =>

@@ -2,16 +2,20 @@ import time
 import datetime
 import requests
 import io
+from enum import Enum
 import discord
 import json
 import re
+import contextlib
 from discord.ext import commands, tasks
 from os import chdir
 from discord import utils
 chdir('./app')
 class InfoMsg:
  permission_error = 'Interaction failed - you might not have the required permissions'
- setup_error = 'This server does not have verification setup.'
+ setup_error = 'This server does not have verification set up'
+ address_error = lambda a: f'Invalid adress(es): **{",".join(a)}**'
+ message_error = 'Message failed to send!'
  member_presence_error = 'User is not on this server!'
  member_already_verified_error = 'User is already verified!'
  member_unverifiable_error = 'User is not manually verifiable!'
@@ -24,6 +28,7 @@ class InfoMsg:
  verification_accepted = 'Your verification request has been submitted!'
  verification_confirm_success = lambda user: f'<@{user.id}> has been verified!'
  verification_personal_success = lambda guild: f'You have been verified in **{utils.escape_markdown(guild.name)}**!'
+ personal_message = lambda guild: f'You have been sent a message from **{utils.escape_markdown(guild.name)}**:\n\n'
  verification_confirm_audit = lambda context: f'User verified by admin <@{context.author.id}>'
  verification_role_on_join_audit = 'Unverified role given to new member'
  set_unverified_role = lambda id: f'Unverified role set to <@&{id}>'
@@ -156,10 +161,11 @@ class UserCache:
   created_at = jsonDict.get('created_at')
   return cls(id, created_at)
  def dictify(self) : return {'id': self.id,'created_at':  self.created_at}
+class MessageTypes(Enum):
+ SEND = 0
+ RESPOND = 1
 class Message:
- def __init__(self, content='', embeds=None, files=None, delete_after=None, reference=None, poll=None, stickers=None, silent=False, mention_author=True, ephemeral=False, tts=False, view=None):
-  for x in embeds, files, stickers:
-   if x is None: x = []
+ def __init__(self, content='', embeds=[], files=[], delete_after=None, reference=None, poll=None, stickers=[], silent=False, mention_author=True, ephemeral=False, tts=False, address=None, view=None):
   self.content = content
   self.embeds = embeds
   self.files = files
@@ -171,6 +177,7 @@ class Message:
   self.mention_author = mention_author
   self.ephemeral = ephemeral
   self.tts = tts
+  self.address = address
   self.view = view
   
  def adapted_files(self, ctx):
@@ -193,7 +200,8 @@ class Message:
   mention_author = getDefault(jsonDict, 'mention_author', True)
   ephemeral = getDefault(jsonDict, 'ephemeral', False)
   tts = getDefault(jsonDict, 'tts', False)
-  return cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral, tts)
+  address = jsonDict.get('address')
+  return cls(content, embeds, files, delete_after, reference, poll, stickers, silent, mention_author, ephemeral, tts, address)
  def set_view(self, view):
   self.view = view
   return self
@@ -201,62 +209,116 @@ class Message:
   embedList = [e.to_dict() for e in self.embeds]
   for e in embedList:
    if (f := e.get("color")) is not None: e.update({"color": hex(f)})
-  dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text)} for e in poll.answers]} if (poll := self.poll) is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral,'tts': self.tts}
+  dictified = {'content': self.content,'embeds': embedList,'files': [{"url": u,"filename": e.filename,"description": e.description,"spoiler": e.spoiler} for e, u in self.files],'poll':  {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text)} for e in poll.answers]} if (poll := self.poll) is not None else None,'stickers': self.stickers,'delete_after': self.delete_after,'reference': self.reference,'silent': self.silent,'mention_author': self.mention_author,'ephemeral': self.ephemeral,'tts': self.tts,'address': self.address}
   if shorten: dictified = filter_none(dictified)
   return dictified
- async def send(self, ctx, *, respond=False):
-  if isAuth(ctx) or respond:
-   content = self.content
-   embeds = self.embeds
-   files = self.adapted_files(ctx)
-   delete_after = self.delete_after
-   reference = (await ctx.channel.fetch_message(r)if (r := self.reference) is not None else None)
-   poll = self.poll if isPollsAuth(ctx) else None
-   silent = self.silent
-   mention_author = self.mention_author
-   ephemeral = self.ephemeral
-   tts = self.tts if isTTSAuth(ctx) else False
-   stickers = [await bot.fetch_sticker(e) for e in stickers] if (stickers := self.stickers) is not None else None
-   view = self.view
-   return_message = await ctx.respond(content=content,embeds=embeds,files=files,delete_after=delete_after,poll=poll,ephemeral=ephemeral,tts=tts,view=view) if respond else await ctx.send(content=content,embeds=embeds,files=files,delete_after=delete_after,reference=reference,poll=poll,silent=silent,mention_author=mention_author,tts=tts,stickers=stickers,view=view)
-   return return_message
-  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
- async def respond(self, ctx) : return await self.send(ctx, respond=True)
+ async def send(self, ctx, *, type=MessageTypes.SEND):
+  try:
+   if isAuth(ctx) or (type != MessageTypes.SEND):
+    content = self.content
+    embeds = self.embeds
+    files = self.adapted_files(ctx)
+    delete_after = self.delete_after
+    reference = (await ctx.channel.fetch_message(r)if (r := self.reference) is not None else None)
+    poll = self.poll if isPollsAuth(ctx) else None
+    silent = self.silent
+    mention_author = self.mention_author
+    ephemeral = self.ephemeral
+    tts = self.tts if isTTSAuth(ctx) else False
+    stickers = [await bot.fetch_sticker(e) for e in stickers] if (stickers := self.stickers) is not None else None
+    address = self.address
+    view = self.view
+    with contextlib.suppress(AttributeError):
+     return_messages = []
+     match type:
+      case MessageTypes.RESPOND:
+       if ctx.interaction.response.is_done():
+        return_messages = [await ctx.interaction.edit_original_response(content=content,embeds=embeds,files=files,delete_after=delete_after,view=view)]
+        
+       else:
+        return_messages = [(await ctx.interaction.respond(content=content,embeds=embeds,files=files,delete_after=delete_after,ephemeral=ephemeral,tts=tts,view=view))]
+       
+      case _:
+       newctx = []
+       if not isinstance(address, list): address = [address]
+       address = set(address)
+       fails = []
+       for a in address:
+        try:
+         await Message(f'Sending... {a}', ephemeral=True).respond(ctx)
+         ncontent = content
+         if a is not None:
+          na = abs(a)
+          personal = True
+          guild = ctx.channel.guild
+          if a < 0:
+           match na:
+            case 0: newctx = guild.members
+            case 1: newctx = [m for m in guild.members if m.status != discord.Status.offline]
+            case _:
+             try: newctx = guild.get_role(na).members
+             except:
+              newctx = [guild.get_channel_or_thread(na)]
+              personal = False 
+             
+            
+           
+          else: newctx = [guild.get_member(na)]
+          if personal:
+           newctx = [(u if (u:=(user).dm_channel) is not None else await user.create_dm()) for user in newctx]
+           ncontent = InfoMsg.personal_message(guild) + content
+          
+         else: newctx = [ctx]
+         return_messages += [await n.send(content=ncontent,embeds=embeds,files=files,delete_after=delete_after,reference=reference,poll=poll,silent=silent,mention_author=mention_author,tts=tts,stickers=stickers,view=view) for n in set(newctx)]
+         
+        except AttributeError:
+         fails.append(str(a))
+         continue
+        
+       if fails:
+        await Message(InfoMsg.address_error(fails), ephemeral=True).respond(ctx)
+        return 
+       
+      
+     
+    return return_messages
+   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
+   return 
+  except:
+   await Message(InfoMsg.message_error, ephemeral=True).respond(ctx)
+   return 
+  
+ async def respond(self, ctx) : return await self.send(ctx, type=MessageTypes.RESPOND)
 ext = Ext()
 bot = theClient()
 @tasks.loop(seconds=5)
 async def usercheck_task():await bot.usercheck()
 def isAuth(ctx):
- if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.manage_webhooks
+ if isinstance(ctx, discord.ApplicationContext) : return ( not isinstance(ctx.channel, discord.abc.GuildChannel)) or ctx.author.guild_permissions.manage_webhooks
  return True
 isVerAuth = lambda ctx:ctx.author.guild_permissions.manage_guild
 isPinAuth = lambda ctx:ctx.author.guild_permissions.manage_messages
 isReactAuth = lambda ctx:ctx.author.guild_permissions.add_reactions
 isInteractionVerAuth = lambda interaction:interaction.user.guild_permissions.manage_guild
 def isTTSAuth(ctx):
- if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_tts_messages
+ if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_tts_messages
  return True
 def isFilesAuth(ctx):
- if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.attach_files
+ if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.attach_files
  return True
 def isPollsAuth(ctx):
- if isinstance(ctx, commands.Context) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_polls
+ if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_polls
  return True
 messagesGroup = bot.create_group("wh", "Sending webhook-style messages")
 messagesResponseGroup = bot.create_group("r", "Sending response messages")
 utilityGroup = bot.create_group("u", "Various QOL commands")
 async def embed(ctx, message):
- try:
-  await Message.from_dict(safeload(message)).send(ctx)
-  await Message('Message sent!', ephemeral=True, delete_after=5.0).respond(ctx)
-  return 
- except:
-  pass
- await Message('Message failed to send!', ephemeral=True).respond(ctx)
+ await Message('Sending...', ephemeral=True).respond(ctx)
+ if await Message.from_dict(safeload(message)).send(ctx): await Message('Message sent!', delete_after=5.0).respond(ctx)
+ 
 async def rembed(ctx, message):
  try:
   message = Message.from_dict(safeload(message))
-  message.poll = None
   await message.respond(ctx)
   return 
  except:
@@ -268,8 +330,7 @@ async def embedstr(ctx, *, message: str):await embed(ctx, message)
 async def embedf(ctx, *, json_file: discord.Attachment):await embed(ctx, await json_file.read())
 @messagesGroup.command(name = "say", description = "Say something")
 async def say(ctx, *, message: str):
- message = message.replace('\\\\n', '\\n').replace('\\n', '\n')
- await embed(ctx, f'{{"content":"{message}"}}')
+ await embed(ctx, f'{{"content":"{message.replace('"', '\\"')}"}}')
 @messagesGroup.command(name = "closepoll", description = "Close a poll")
 async def closepoll(ctx, *, message_id: str):
  try:
@@ -317,17 +378,17 @@ async def rembedstr(ctx, *, message: str):await rembed(ctx, message)
 @messagesResponseGroup.command(name = "file-embed", description = "Respond with a message based on a json file")
 async def rembedf(ctx, *, json_file: discord.Attachment):await rembed(ctx, await json_file.read())
 @messagesResponseGroup.command(name = "say", description = "Respond by saying something")
-async def rsay(ctx, *, message: str):await Message(message.replace('\\\\n', '\\n').replace('\\n', '\n')).respond(ctx)
+async def rsay(ctx, *, message: str):await Message(message).respond(ctx)
 @messagesResponseGroup.command(name = "delete", description = "Deletes a message")
 async def delete(ctx, *, message_id: str):
  try:
   reference_message = await ctx.fetch_message(message_id)
-  if isAuth(ctx) or reference_message.interaction.user.id == ctx.author.id:
+  if (isAuth(ctx) and reference_message.author.id == bot.user.id) or reference_message.interaction_metadata.user.id == ctx.author.id:
    await reference_message.delete()
    await Message('Message deleted successfully!', ephemeral=True).respond(ctx)
    return 
   
- except discord.HTTPException:
+ except:
   pass
  await Message('Message delete failed!', ephemeral=True).respond(ctx)
 @utilityGroup.command(name = "codeblock", description = "Converts message to a codeblock")
@@ -344,14 +405,14 @@ async def newlinify(ctx, *, message_id: str):
    await Message(reference_message.content.replace('\\n', '\\\\n').replace('\n','\\n'), ephemeral=True).respond(ctx)
    return 
   
- except discord.HTTPException:
+ except:
   pass
  await Message('Newlinification failed!', ephemeral=True).respond(ctx)
 def nativeMessageDictify(message, shorten=True):
  embeds = [e.to_dict() for e in message.embeds]
  for e in embeds:
   if (f := e.get("color")) is not None: e.update( {"color": hex(f)} )
- dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"burst": e.me_burst,"count": e.count} for e in message.reactions],"poll": {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text),"count": e.count} for e in poll.answers]} if (poll := message.poll) is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"tts": message.tts,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
+ dictified = {"content": message.content,"embeds": embeds,"files": [{"url": e.url,"filename": e.filename,"description": e.description,"spoiler": e.is_spoiler()} for e in message.attachments],"reactions": [{"emoji": str(e.emoji),"burst": e.me_burst,"count": e.count} for e in message.reactions],"poll": {"duration": poll.duration,"allow_multiselect": poll.allow_multiselect,"question": poll.question.text,"answers": [{"emoji": str(emoji) if (emoji := e.media.emoji) is not None else None,"text": str(e.media.text),"count": e.count} for e in poll.answers]} if (poll := message.poll) is not None else None,"stickers": [e.id for e in message.stickers],"reference": message.reference.message_id if message.reference is not None else None,"tts": message.tts,"address": -c.id if isinstance(c := message.channel, discord.abc.GuildChannel) else c.id,"created_at": datetime.datetime.timestamp(message.created_at),"edited_at": datetime.datetime.timestamp(message.edited_at) if message.edited_at is not None else None}
  if shorten: dictified = filter_none(dictified)
  return dictified
 @utilityGroup.command(name = "jsonify", description = "Turn a message into json")
@@ -370,15 +431,15 @@ verificationGroup.contexts = [discord.InteractionContextType.guild]
 @verificationGroup.command(name = "verify", description="Verifies you if you are unverified")
 async def verify(ctx):
  try:
-  assert verifcheck(ctx.guild)
-  guild = ext.guilds.getg(ctx.guild.id)
+  assert verifcheck(ctx.channel.guild)
+  guild = ext.guilds.getg(ctx.channel.guild.id)
   if any(e.id == ctx.author.id for e in guild.verif_pending) and not any(e.id == ctx.author.id for e in guild.verif_admin_pending):
    await Message(InfoMsg.verification_accepted, ephemeral=True).respond(ctx)
    guilds = ext.guilds
    guild.verif_pending = [e for e in guild.verif_pending if e.id != ctx.user.id]
    guild.verif_admin_pending.append(UserCache(ctx.user.id))
    guilds.addg(guild)
-   await manualVerificationMessage(ctx.user, guild).send(ctx.guild.get_channel(guild.verif_log_channel))
+   await manualVerificationMessage(ctx.user, guild).send(ctx.channel.guild.get_channel(guild.verif_log_channel))
    ext.guilds = guilds
    return 
   
@@ -394,7 +455,7 @@ async def unverified_role(ctx, *, role: discord.Role):
   if isVerAuth(ctx):
    await Message(InfoMsg.set_unverified_role(role.id), delete_after=15.0).respond(ctx)
    guilds = ext.guilds
-   guild = guilds.getg(ctx.guild.id)
+   guild = guilds.getg(ctx.channel.guild.id)
    guild.verif_role = role.id
    guilds.addg(guild)
    ext.guilds = guilds
@@ -410,7 +471,7 @@ async def timeout(ctx, *, amt: float, time_interval: discord.Option(str, choices
    seconds = float(amt*TimeUnits.unit_map(time_interval))
    await Message(InfoMsg.set_v_timeout(seconds), delete_after=15.0).respond(ctx)
    guilds = ext.guilds
-   guild = guilds.getg(ctx.guild.id)
+   guild = guilds.getg(ctx.channel.guild.id)
    guild.verif_timeout = seconds
    guilds.addg(guild)
    ext.guilds = guilds
@@ -426,7 +487,7 @@ async def admin_timeout(ctx, *, amt: discord.SlashCommandOptionType.number, time
    seconds = float(amt*TimeUnits.unit_map(time_interval))
    await Message(InfoMsg.set_mv_timeout(seconds), delete_after=15.0).respond(ctx)
    guilds = ext.guilds
-   guild = guilds.getg(ctx.guild.id)
+   guild = guilds.getg(ctx.channel.guild.id)
    guild.verif_admin_timeout = amt*TimeUnits.unit_map(time_interval)
    guilds.addg(guild)
    ext.guilds = guilds
@@ -441,7 +502,7 @@ async def set_verif_msg(ctx, *, message: str):
   if isVerAuth(ctx):
    await Message(InfoMsg.set_v_message(jsonPrettify(message)), delete_after=15.0).respond(ctx)
    guilds = ext.guilds
-   guild = guilds.getg(ctx.guild.id)
+   guild = guilds.getg(ctx.channel.guild.id)
    guild.verif_msg_from_dict(safeload(message))
    guilds.addg(guild)
    ext.guilds = guilds
@@ -456,7 +517,7 @@ async def set_verif_log_msg(ctx, *, message: str):
   if isVerAuth(ctx):
    await Message(InfoMsg.set_vlog_message(jsonPrettify(message)), delete_after=15.0).respond(ctx)
    guilds = ext.guilds
-   guild = guilds.getg(ctx.guild.id)
+   guild = guilds.getg(ctx.channel.guild.id)
    guild.verif_log_msg_from_dict(safeload(message))
    guilds.addg(guild)
    ext.guilds = guilds
@@ -471,7 +532,7 @@ async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
   if isVerAuth(ctx):
    await Message(InfoMsg.set_vlog_channel(channel.id), delete_after=15.0).respond(ctx)
    guilds = ext.guilds
-   guild = guilds.getg(ctx.guild.id)
+   guild = guilds.getg(ctx.channel.guild.id)
    guild.verif_log_channel = channel.id
    guilds.addg(guild)
    ext.guilds = guilds
@@ -484,7 +545,7 @@ async def set_verif_log_channel(ctx, *, channel: discord.TextChannel):
 async def config_get(ctx):
  try:
   if isVerAuth(ctx):
-   guild = ext.guilds.getg(ctx.guild.id)
+   guild = ext.guilds.getg(ctx.channel.guild.id)
    await Message(f'## CONFIG FOR CURRENT GUILD\n\\> Unverified role set to <@&{guild.verif_role}>\n\\> Verification timeout set to {datetime.timedelta(seconds=guild.verif_timeout)}\n\\> Manual verification timeout set to {datetime.timedelta(seconds=guild.verif_admin_timeout)}\n\\> Verification message set to:\n```json\n{json.dumps(guild.verif_msg.dictify(), indent=4)}```\n\\> Verification log message template set to:\n```json\n{json.dumps(guild.verif_log_msg.dictify(shorten=True), indent=4)}```\n\\> Verification log channel set to <#{guild.verif_log_channel}>.',ephemeral=True).respond(ctx)
    return 
   
@@ -524,16 +585,16 @@ def manualVerificationMessage(user, guild_cache):
 @verificationGroup.command(name = "sendverif", description="Sends the predefined verification message")
 async def send_verification(ctx):
  if isVerAuth(ctx):
-  await ext.guilds.getg(ctx.guild.id).verif_msg.respond(ctx)
+  await ext.guilds.getg(ctx.channel.guild.id).verif_msg.respond(ctx)
   return 
  await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "confirm", description="Verifies a user")
 async def confirm(ctx, user: discord.Member):
  try:
-  assert verifcheck(ctx.guild)
+  assert verifcheck(ctx.channel.guild)
   if isVerAuth(ctx):
    guilds = ext.guilds
-   try: guild_cache = guilds.getg(ctx.guild.id)
+   try: guild_cache = guilds.getg(ctx.channel.guild.id)
    except AttributeError:
     await Message(InfoMsg.member_presence_error, ephemeral=True).respond(ctx)
     return 
@@ -542,21 +603,21 @@ async def confirm(ctx, user: discord.Member):
     return 
    guild_cache.verif_admin_pending = [e for e in guild_cache.verif_admin_pending if e.id != user.id]
    guild_cache.verif_pending = [e for e in guild_cache.verif_pending if e.id != user.id]
-   await user.remove_roles(ctx.guild.get_role(guild_cache.verif_role), reason=InfoMsg.verification_confirm_audit(ctx))
+   await user.remove_roles(ctx.channel.guild.get_role(guild_cache.verif_role), reason=InfoMsg.verification_confirm_audit(ctx))
    guilds.addg(guild_cache)
    ext.guilds = guilds
    await Message(InfoMsg.verification_confirm_success(user)).respond(ctx)
-   await (Message(InfoMsg.verification_personal_success(ctx.guild))).send(u if (u:=user.dm_channel) is not None else await user.create_dm())
+   await (Message(InfoMsg.verification_personal_success(ctx.channel.guild))).send(u if (u:=user.dm_channel) is not None else await user.create_dm())
    return 
   await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
  except AssertionError: await Message(InfoMsg.setup_error, ephemeral=True).respond(ctx)
 @verificationGroup.command(name = "decline", description="Kicks an unverified user")
 async def decline(ctx, user: discord.Member):
  try:
-  assert verifcheck(ctx.guild)
+  assert verifcheck(ctx.channel.guild)
   if isVerAuth(ctx):
    guilds = ext.guilds
-   try: guild_cache = guilds.getg(ctx.guild.id)
+   try: guild_cache = guilds.getg(ctx.channel.guild.id)
    except AttributeError:
     await Message(InfoMsg.member_presence_error, ephemeral=True).respond(ctx)
     return 
@@ -565,7 +626,7 @@ async def decline(ctx, user: discord.Member):
     return 
    guild_cache.verif_admin_pending = [e for e in guild_cache.verif_admin_pending if e.id != user.id]
    guild_cache.verif_pending = [e for e in guild_cache.verif_pending if e.id != user.id]
-   await ctx.guild.kick(user, reason=InfoMsg.verification_decline_audit(ctx))
+   await ctx.channel.guild.kick(user, reason=InfoMsg.verification_decline_audit(ctx))
    guilds.addg(guild_cache)
    ext.guilds = guilds
    await Message(InfoMsg.verification_decline_success(user)).respond(ctx)
@@ -575,9 +636,9 @@ async def decline(ctx, user: discord.Member):
 @verificationGroup.command(name = "veriflist", description="Sends a list of all unverified users")
 async def get_veriflist(ctx):
  try:
-  assert verifcheck(ctx.guild)
+  assert verifcheck(ctx.channel.guild)
   if isVerAuth(ctx):
-   guild = ext.guilds.getg(ctx.guild.id)
+   guild = ext.guilds.getg(ctx.channel.guild.id)
    if len(guild.verif_pending) > 0:
     await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_timeout)-(datetime.datetime.fromtimestamp(time.time())-datetime.datetime.fromtimestamp(x.created_at))}".split(".", 2)[0]} left (<t:{int(x.created_at + guild.verif_timeout)}:R>)' for x in guild.verif_pending])).respond(ctx)
     return 
@@ -588,9 +649,9 @@ async def get_veriflist(ctx):
 @verificationGroup.command(name = "mveriflist", description="Sends a list of all manually unverified users")
 async def get_mveriflist(ctx):
  try:
-  assert verifcheck(ctx.guild)
+  assert verifcheck(ctx.channel.guild)
   if isVerAuth(ctx):
-   guild = ext.guilds.getg(ctx.guild.id)
+   guild = ext.guilds.getg(ctx.channel.guild.id)
    if len(guild.verif_admin_pending) > 0:
     await Message('\n'.join([f'<@{x.id}>, {f"{datetime.timedelta(seconds=guild.verif_admin_timeout)-(datetime.datetime.fromtimestamp(time.time())-datetime.datetime.fromtimestamp(x.created_at))}".split(".", 2)[0]} left (<t:{int(x.created_at + guild.verif_admin_timeout)}:R>)' for x in guild.verif_admin_pending])).respond(ctx)
     return 
