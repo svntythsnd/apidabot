@@ -1,4 +1,5 @@
 // v3.12
+// py-cord v2.7.0
 
 import time;
 import datetime;
@@ -498,34 +499,34 @@ async := usercheck_task():
     await bot.usercheck();
 
 := isAuth(ctx) {
-    if isinstance(ctx, discord.ApplicationContext) :=> (!isinstance(ctx.channel, discord.abc.GuildChannel)) || ctx.author.guild_permissions.manage_webhooks;
+    if isinstance(ctx, discord.ApplicationContext) :=> (!isinstance(ctx.channel, discord.abc.GuildChannel)) || ctx.channel.permissions_for(ctx.author).manage_webhooks;
     => True
 }
 
 isVerAuth = ;=ctx:
-    ctx.author.guild_permissions.manage_guild;
+    ctx.channel.permissions_for(ctx.author).manage_guild;
 
 isPinAuth = ;=ctx:
-    ctx.author.guild_permissions.manage_messages;
+    ctx.channel.permissions_for(ctx.author).manage_messages;
 
 isReactAuth = ;=ctx:
-    ctx.author.guild_permissions.add_reactions;
+    ctx.channel.permissions_for(ctx.author).add_reactions;
 
 isInteractionVerAuth = ;=interaction:
-    interaction.user.guild_permissions.manage_guild;
+    ctx.channel.permissions_for(interaction.user).manage_guild;
 
 := isTTSAuth(ctx) {
-    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_tts_messages;
+    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.channel.permissions_for(ctx.author).send_tts_messages;
     => True
 }
 
 := isFilesAuth(ctx) {
-    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.attach_files;
+    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.channel.permissions_for(ctx.author).attach_files;
     => True
 }
 
 := isPollsAuth(ctx) {
-    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.author.guild_permissions.send_polls;
+    if isinstance(ctx, discord.ApplicationContext) :=> !isinstance(ctx.channel, discord.abc.GuildChannel) || ctx.channel.permissions_for(ctx.author).send_polls;
     => True
 }
 

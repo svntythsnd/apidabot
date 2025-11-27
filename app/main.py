@@ -294,20 +294,20 @@ bot = theClient()
 @tasks.loop(seconds=5)
 async def usercheck_task():await bot.usercheck()
 def isAuth(ctx):
- if isinstance(ctx, discord.ApplicationContext) : return ( not isinstance(ctx.channel, discord.abc.GuildChannel)) or ctx.author.guild_permissions.manage_webhooks
+ if isinstance(ctx, discord.ApplicationContext) : return ( not isinstance(ctx.channel, discord.abc.GuildChannel)) or ctx.channel.permissions_for(ctx.author).manage_webhooks
  return True
-isVerAuth = lambda ctx:ctx.author.guild_permissions.manage_guild
-isPinAuth = lambda ctx:ctx.author.guild_permissions.manage_messages
-isReactAuth = lambda ctx:ctx.author.guild_permissions.add_reactions
-isInteractionVerAuth = lambda interaction:interaction.user.guild_permissions.manage_guild
+isVerAuth = lambda ctx:ctx.channel.permissions_for(ctx.author).manage_guild
+isPinAuth = lambda ctx:ctx.channel.permissions_for(ctx.author).manage_messages
+isReactAuth = lambda ctx:ctx.channel.permissions_for(ctx.author).add_reactions
+isInteractionVerAuth = lambda interaction:ctx.channel.permissions_for(interaction.user).manage_guild
 def isTTSAuth(ctx):
- if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_tts_messages
+ if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.channel.permissions_for(ctx.author).send_tts_messages
  return True
 def isFilesAuth(ctx):
- if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.attach_files
+ if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.channel.permissions_for(ctx.author).attach_files
  return True
 def isPollsAuth(ctx):
- if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.author.guild_permissions.send_polls
+ if isinstance(ctx, discord.ApplicationContext) : return not isinstance(ctx.channel, discord.abc.GuildChannel) or ctx.channel.permissions_for(ctx.author).send_polls
  return True
 messagesGroup = bot.create_group("wh", "Sending webhook-style messages")
 messagesResponseGroup = bot.create_group("r", "Sending response messages")
