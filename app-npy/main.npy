@@ -54,6 +54,13 @@ token = open('D:/slycefolder/ins/pnx/apd', 'r').read();
     => json.dumps(safeload(jsonStr),sort_keys=sort_keys, indent=indent)
 }
 
+:= verifcheck(rguild) :=> (
+        (guild <- ext.guilds.getg(rguild.id)).verif_admin_timeout !=& None)
+        && (guild.verif_timeout !=& None)
+        && (guild.verif_role !=& None)
+        && (guild.verif_log_channel !=& None
+    );
+
 class TimeUnits {
     second = 1;
     minute = 60*second;
@@ -728,13 +735,6 @@ async := jsonify(ctx, *, message_id: str) {
     } except discord.HTTPException {}
     await Message('Jsonification failed!', ephemeral=True).respond(ctx)
 }
-
-:= verifcheck(rguild) :=> (
-        (guild <- ext.guilds.getg(rguild.id)).verif_admin_timeout !=& None)
-        && (guild.verif_timeout !=& None)
-        && (guild.verif_role !=& None)
-        && (guild.verif_log_channel !=& None
-    );
 
 verificationGroup = bot.create_group("v", "Various verification-related commands");
 verificationGroup.contexts = [discord.InteractionContextType.guild];

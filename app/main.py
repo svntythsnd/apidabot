@@ -41,6 +41,7 @@ path = 'external.json'
 token = open('D:/slycefolder/ins/pnx/apd', 'r').read()
 def jsonPrettify(jsonStr, sort_keys: bool = False, indent: int = 4):
  return json.dumps(safeload(jsonStr),sort_keys=sort_keys, indent=indent)
+def verifcheck(rguild) : return ((guild := ext.guilds.getg(rguild.id)).verif_admin_timeout is not None) and (guild.verif_timeout is not None) and (guild.verif_role is not None) and (guild.verif_log_channel is not None)
 class TimeUnits:
  second = 1
  minute = 60*second
@@ -428,7 +429,6 @@ async def jsonify(ctx, *, message_id: str):
  except discord.HTTPException:
   pass
  await Message('Jsonification failed!', ephemeral=True).respond(ctx)
-def verifcheck(rguild) : return ((guild := ext.guilds.getg(rguild.id)).verif_admin_timeout is not None) and (guild.verif_timeout is not None) and (guild.verif_role is not None) and (guild.verif_log_channel is not None)
 verificationGroup = bot.create_group("v", "Various verification-related commands")
 verificationGroup.contexts = [discord.InteractionContextType.guild]
 @verificationGroup.command(name = "verify", description="Verifies you if you are unverified")
