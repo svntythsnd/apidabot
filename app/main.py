@@ -245,9 +245,9 @@ class Message:
        fails = []
        for a in address:
         try:
-         await Message(f'Sending... {a}', ephemeral=True).respond(ctx)
+         await Message(f'Sending... {a if (external := a is not None) else "(here)"}', ephemeral=True).respond(ctx)
          ncontent = content
-         if a is not None:
+         if external:
           na = abs(a)
           personal = True
           guild = ctx.channel.guild
@@ -265,13 +265,18 @@ class Message:
            
           else: newctx = [guild.get_member(na)]
           if personal:
-           newctx = [(u if (u:=(user).dm_channel) is not None else await user.create_dm()) for user in newctx]
+           async def tryDM(user):
+            if (u := (user).dm_channel) is not None : return u
+            try : return await user.create_dm()
+            except discord.HTTPException : return False
+           newctx = [u for user in newctx if (u:=(await tryDM(user)))]
            ncontent = InfoMsg.personal_message(guild) + content
           
          else: newctx = [ctx]
          return_messages += [await n.send(content=ncontent,embeds=embeds,files=files,delete_after=delete_after,reference=reference,poll=poll,silent=silent,mention_author=mention_author,tts=tts,stickers=stickers,view=view) for n in set(newctx)]
          
-        except AttributeError:
+        except AttributeError as e:
+         print(e)
          fails.append(str(a))
          continue
         
@@ -284,10 +289,8 @@ class Message:
     return return_messages
    await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx)
    return 
-  except:
-   await Message(InfoMsg.message_error, ephemeral=True).respond(ctx)
-   return 
-  
+  except Exception as e: print(e)
+  await Message(InfoMsg.message_error, ephemeral=True).respond(ctx)
  async def respond(self, ctx) : return await self.send(ctx, type=MessageTypes.RESPOND)
 ext = Ext()
 bot = theClient()

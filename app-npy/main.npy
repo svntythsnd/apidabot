@@ -435,9 +435,9 @@ class Message {
                         fails = [];
                         for a -> address {
                             try {
-                                await Message(f'Sending... {a}', ephemeral=True).respond(ctx);
+                                await Message(f'Sending... {a if (external <- a !=& None) else "(here)"}', ephemeral=True).respond(ctx);
                                 ncontent = content;
-                                if a !=& None {
+                                if external {
                                     na = abs(a);
                                     personal = True;
                                     guild = ctx.channel.guild;
@@ -453,7 +453,12 @@ class Message {
                                     }
                                     else: newctx = [guild.get_member(na)];
                                     if personal {
-                                        newctx = [(u if (u<-(user).dm_channel) !=& None else await user.create_dm()) for user -> newctx];
+                                        async := tryDM(user) {
+                                            if (u <- (user).dm_channel) !=& None :=> u;
+                                            try :=> await user.create_dm();
+                                            except discord.HTTPException :=> False
+                                        }
+                                        newctx = [u for user -> newctx if (u<-(await tryDM(user)))];
                                         ncontent = InfoMsg.personal_message(guild) + content
                                     }
                                 } else: newctx = [ctx];
@@ -470,7 +475,8 @@ class Message {
                                     stickers=stickers,
                                     view=view
                                 ) for n -> set(newctx)];
-                            } except AttributeError {
+                            } except AttributeError as e {
+                                print(e);
                                 fails.append(str(a));
                                 continue
                             }
@@ -484,7 +490,8 @@ class Message {
             }
             => return_messages
         } await Message(InfoMsg.permission_error, ephemeral=True).respond(ctx); =>
-        } except { await Message(InfoMsg.message_error, ephemeral=True).respond(ctx); => }
+        } except Exception as e: print(e);
+        await Message(InfoMsg.message_error, ephemeral=True).respond(ctx)
     }
 
     async := respond(self, ctx) :=> await self.send(ctx, type=MessageTypes.RESPOND)
